@@ -10,9 +10,9 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)](https://python.org)
 [![PyPI](https://img.shields.io/pypi/v/docforge-ai?color=green)](https://pypi.org/project/docforge-ai)
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)]()
-[![Stars](https://img.shields.io/github/stars/synapseai/docforged?style=social)](https://github.com/synapseai/docforged)
-[![Contributors](https://img.shields.io/github/contributors/synapseai/docforged)](https://github.com/synapseai/docforged/graphs/contributors)
-[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord)](https://discord.gg/synapseai)
+[![Stars](https://img.shields.io/github/stars/tailorgunjan93/docforged?style=social)](https://github.com/tailorgunjan93/docforged)
+[![Contributors](https://img.shields.io/github/contributors/tailorgunjan93/docforged)](https://github.com/tailorgunjan93/docforged/graphs/contributors)
+[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord)](https://discord.gg/docforged)
 
 *Parse any document. Understand its structure. Build RAG that actually works.*
 
@@ -129,7 +129,7 @@ DocForge resolves queries without sending full documents to the LLM:
 - Quantized embeddings stored inside (float16 = 2× smaller, negligible accuracy loss)
 - Pre-computed intelligence: summary, insights, key numbers — extracted once
 - Portable: share by email, USB, S3, Slack — works anywhere
-- Open spec: [github.com/synapseai/udf-spec](https://github.com/synapseai/udf-spec)
+- Open spec: [github.com/tailorgunjan93/udf-spec](https://github.com/tailorgunjan93/udf-spec)
 
 ---
 
@@ -191,16 +191,16 @@ DocForge is the foundation of the Synapse ecosystem:
 
 | Product | Description |
 |---|---|
-| [docforged](https://github.com/synapseai/docforged) | This library — document normalization engine |
-| [udf-spec](https://github.com/synapseai/udf-spec) | Open specification for the .udf format |
-| [synapse-local](https://github.com/synapseai/synapse-local) | Desktop RAG app (Tauri) powered by DocForge |
-| [udf-reader-vscode](https://github.com/synapseai/udf-reader-vscode) | VS Code extension for .udf files |
-| [synapseKB](https://github.com/synapseai/synapseKB) | Cloud knowledge platform |
+| [docforged](https://github.com/tailorgunjan93/docforged) | This library — document normalization engine |
+| [udf-spec](https://github.com/tailorgunjan93/udf-spec) | Open specification for the .udf format |
+| [synapse-local](https://github.com/tailorgunjan93/synapse-local) | Desktop RAG app (Tauri) powered by DocForge |
+| [udf-reader-vscode](https://github.com/tailorgunjan93/udf-reader-vscode) | VS Code extension for .udf files |
+| [synapseKB](https://github.com/tailorgunjan93/synapseKB) | Cloud knowledge platform |
 
 ---
 
 <div align="center">
 
-Built with ❤️ for the RAG community · [synapseai.dev](https://synapseai.dev)
+Built with ❤️ for the RAG community · [github.com/tailorgunjan93/docforged](https://github.com/tailorgunjan93/docforged)
 
 </div>

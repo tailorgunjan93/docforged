@@ -34,7 +34,7 @@ Documentation PRs are always welcome. No issue required for small fixes.
 ## Development Setup
 
 ```bash
-git clone https://github.com/synapseai/docforged
+git clone https://github.com/tailorgunjan93/docforged
 cd docforged
 python -m venv .venv
 source .venv/bin/activate       # Windows: .venv\Scripts\activate
@@ -139,4 +139,4 @@ Be kind. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Questions?
 
-Open a [Discussion](https://github.com/synapseai/docforged/discussions) — not an issue. Discussions are for questions, ideas, and architecture conversations.
+Open a [Discussion](https://github.com/tailorgunjan93/docforged/discussions) — not an issue. Discussions are for questions, ideas, and architecture conversations.

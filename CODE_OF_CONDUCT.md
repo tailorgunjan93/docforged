@@ -21,7 +21,7 @@ We are committed to making participation in the DocForge community a welcoming e
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening a private issue or emailing conduct@synapseai.dev. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening a private issue or emailing conduct@github.com/tailorgunjan93/docforged. All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
 

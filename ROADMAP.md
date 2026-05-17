@@ -89,9 +89,9 @@ See [SPEC_DOCFORGE_PYPI.md](docs/SPEC_DOCFORGE_PYPI.md) for the complete technic
 - [ ] 85%+ test coverage
 - [ ] Full type annotations + mypy passing
 - [ ] API stable — semver guaranteed from 1.0.0
-- [ ] Comprehensive docs at docs.docforge.dev
+- [ ] Comprehensive docs at github.com/tailorgunjan93/docforged/blob/main/docs/SPEC_DOCFORGE_PYPI.md
 - [ ] Example notebooks (Jupyter)
-- [ ] Docker image: `ghcr.io/synapseai/docforge:latest`
+- [ ] Docker image: `ghcr.io/tailorgunjan93/docforge:latest`
 
 ---
 
@@ -136,7 +136,7 @@ These are not committed — open a Discussion to vote/discuss:
 ## How to Influence the Roadmap
 
 1. **Vote** — react 👍 to issues you care about
-2. **Discuss** — open a [Discussion](https://github.com/synapseai/docforged/discussions) for big ideas
+2. **Discuss** — open a [Discussion](https://github.com/tailorgunjan93/docforged/discussions) for big ideas
 3. **Build** — see [CONTRIBUTING.md](CONTRIBUTING.md) and claim an issue
 
 The features with the most votes get prioritized next.

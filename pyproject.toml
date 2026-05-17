@@ -8,7 +8,7 @@ version = "0.1.0-alpha"
 description = "The document normalization engine RAG has always needed"
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "SynapseAI", email = "hello@synapseai.dev" }]
+authors = [{ name = "SynapseAI", email = "hello@github.com/tailorgunjan93/docforged" }]
 keywords = [
     "rag", "document-ai", "nlp", "llm", "embeddings",
     "knowledge-base", "document-processing", "information-retrieval",
@@ -58,11 +58,11 @@ all = ["docforge-ai[openai,connectors]"]
 docforge = "docforge.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/synapseai/docforged"
-Documentation = "https://docs.docforge.dev"
-Repository = "https://github.com/synapseai/docforged"
-Issues = "https://github.com/synapseai/docforged/issues"
-Changelog = "https://github.com/synapseai/docforged/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/tailorgunjan93/docforged"
+Documentation = "https://github.com/tailorgunjan93/docforged/blob/main/docs/SPEC_DOCFORGE_PYPI.md"
+Repository = "https://github.com/tailorgunjan93/docforged"
+Issues = "https://github.com/tailorgunjan93/docforged/issues"
+Changelog = "https://github.com/tailorgunjan93/docforged/blob/main/CHANGELOG.md"
 
 [tool.black]
 line-length = 100
