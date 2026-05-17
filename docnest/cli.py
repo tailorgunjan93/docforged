@@ -6,8 +6,10 @@ Commands:
     docnest query   <udf> <question>  Query a .udf file (5-layer RAG)
     docnest inspect <udf>             Show catalogue summary
     docnest stats   <udf>             Show detailed statistics
+    docnest view    <udf>             Open human-readable HTML viewer
+    docnest library init/add/list/search/remove
 
-Phase: 1 (convert), 4 (query / inspect / stats)
+Phase: 1 (convert), 4 (query / inspect / stats / view / library)
 Spec: docs/SPEC_DOCNEST_PYPI.md — Section 12
 """
 
@@ -54,15 +56,23 @@ def convert(
     ),
     include_originals: bool = typer.Option(False, "--include-originals", help="Embed source file in .udf"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show stage-by-stage progress"),
+    # Human-facing metadata
+    owner: str = typer.Option("", "--owner", help="Person or team that owns this document"),
+    department: str = typer.Option("", "--department", help="Business department, e.g. Engineering"),
+    tags: str = typer.Option("", "--tags", help="Comma-separated tags, e.g. 'api,backend,arch'"),
+    access_roles: str = typer.Option("*", "--access-roles", help="Comma-separated roles, e.g. 'engineering,admin'"),
+    doc_version: str = typer.Option("1.0", "--doc-version", help="Document version string"),
 ) -> None:
     """Convert a document or folder to a .udf knowledge base file.
 
     Examples:
         docnest convert report.pdf
         docnest convert report.pdf --fast --output kb.udf
+        docnest convert report.pdf --owner "Alice" --department "Engineering" --tags "api,backend"
         docnest convert ./reports/ --quantization int8
     """
     from docnest.pipeline import DocNestPipeline
+    from docnest.models import DocMeta
     from docnest.exceptions import DOCNESTError
 
     path = Path(source)
@@ -104,6 +114,13 @@ def convert(
             on_stage(stage, data)
 
         try:
+            meta = DocMeta(
+                owner=owner,
+                department=department,
+                tags=[t.strip() for t in tags.split(",") if t.strip()],
+                access_roles=[r.strip() for r in access_roles.split(",") if r.strip()] or ["*"],
+                version=doc_version,
+            )
             pipeline = DocNestPipeline(
                 quantization=quantization,
                 llm_provider=llm_provider,
@@ -111,7 +128,7 @@ def convert(
                 on_stage_complete=on_stage_progress,
                 skip_intelligence=skip_intelligence,
             )
-            out = pipeline.convert(source, output=output, include_originals=include_originals)
+            out = pipeline.convert(source, output=output, include_originals=include_originals, meta=meta)
             progress.update(task, description="Done!", completed=100, total=100)
         except DOCNESTError as exc:
             err_console.print(f"\n[red]Error:[/red] {exc}")
@@ -318,6 +335,216 @@ def stats(
         tbl.add_row(f"  {name}", f"{size // 1024:,} KB")
 
     console.print(tbl)
+
+
+# ------------------------------------------------------------------ #
+#  view                                                                #
+# ------------------------------------------------------------------ #
+
+@app.command()
+def view(
+    udf_path: str = typer.Argument(..., help="Path to the .udf file"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output HTML path"),
+    no_open: bool = typer.Option(False, "--no-open", help="Generate HTML but don't open browser"),
+) -> None:
+    """Open a .udf file as a human-readable HTML document in your browser.
+
+    Generates a self-contained HTML file with a sidebar table of contents
+    and full section content — the same index the AI uses, rendered for humans.
+
+    Examples:
+        docnest view report.udf
+        docnest view report.udf --output report_viewer.html --no-open
+    """
+    import webbrowser
+    from docnest.viewer import generate_html
+    from docnest.exceptions import UDFReadError
+
+    if not Path(udf_path).exists():
+        err_console.print(f"[red]Error:[/red] File not found: {udf_path}")
+        raise typer.Exit(1)
+
+    try:
+        with console.status("[cyan]Generating HTML viewer…[/cyan]"):
+            html_path = generate_html(udf_path, output)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel(
+            f"[green bold]✓ Viewer ready[/green bold]\n\n"
+            f"File: [yellow]{html_path}[/yellow]",
+            title="DocNest View",
+            border_style="green",
+        )
+    )
+
+    if not no_open:
+        import urllib.request
+        url = "file:///" + html_path.replace("\\", "/")
+        webbrowser.open(url)
+        console.print(f"\n[dim]Opening in browser: {url}[/dim]")
+
+
+# ------------------------------------------------------------------ #
+#  library                                                             #
+# ------------------------------------------------------------------ #
+
+library_app = typer.Typer(help="Manage a multi-document library index.")
+app.add_typer(library_app, name="library")
+
+
+@library_app.command("init")
+def library_init(
+    path: str = typer.Argument(".", help="Folder to initialise as a library"),
+    name: str = typer.Option("", "--name", help="Library display name"),
+    description: str = typer.Option("", "--description", help="Library description"),
+) -> None:
+    """Initialise a new library in a folder.
+
+    Creates library.json — the master catalogue index.
+
+    Example:
+        docnest library init ./my-docs --name "Engineering Docs"
+    """
+    from docnest.library import LibraryManager
+    lib = LibraryManager(path)
+    lib.init(name=name, description=description)
+    console.print(f"[green]✓[/green] Library initialised at [yellow]{Path(path).resolve()}[/yellow]")
+    console.print(f"  Name: [cyan]{lib.name}[/cyan]")
+
+
+@library_app.command("add")
+def library_add(
+    udf_path: str = typer.Argument(..., help="Path to the .udf file to add"),
+    library_dir: str = typer.Option(".", "--library", "-l", help="Library folder"),
+) -> None:
+    """Add a .udf file to the library index.
+
+    Reads metadata from the archive and creates a library card.
+
+    Example:
+        docnest library add report.udf
+        docnest library add report.udf --library ./my-docs
+    """
+    from docnest.library import LibraryManager
+    lib = LibraryManager(library_dir)
+    try:
+        entry = lib.add(udf_path)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] Added [bold]{entry.title}[/bold]")
+    meta_parts = []
+    if entry.owner:      meta_parts.append(f"Owner: {entry.owner}")
+    if entry.department: meta_parts.append(f"Dept: {entry.department}")
+    if entry.tags:       meta_parts.append(f"Tags: {', '.join(entry.tags)}")
+    if meta_parts:
+        console.print(f"  [dim]{' · '.join(meta_parts)}[/dim]")
+    console.print(f"  Sections: [cyan]{entry.section_count}[/cyan]  ·  Path: [yellow]{entry.udf_path}[/yellow]")
+
+
+@library_app.command("list")
+def library_list(
+    library_dir: str = typer.Option(".", "--library", "-l", help="Library folder"),
+    department: str = typer.Option("", "--department", help="Filter by department"),
+) -> None:
+    """List all documents in the library.
+
+    Example:
+        docnest library list
+        docnest library list --department Engineering
+    """
+    from docnest.library import LibraryManager
+    lib = LibraryManager(library_dir)
+    try:
+        docs = lib.list_docs(department=department)
+    except FileNotFoundError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not docs:
+        console.print("[dim]No documents in library.[/dim]")
+        return
+
+    tbl = Table(title=f"📚 {lib.name} ({len(docs)} docs)", box=box.SIMPLE, show_header=True, header_style="bold")
+    tbl.add_column("Title", style="bold")
+    tbl.add_column("Dept", style="cyan")
+    tbl.add_column("Owner")
+    tbl.add_column("Tags", style="dim")
+    tbl.add_column("§§", style="yellow", justify="right")
+    tbl.add_column("File", style="dim")
+
+    for e in docs:
+        tbl.add_row(
+            e.title,
+            e.department or "—",
+            e.owner or "—",
+            ", ".join(e.tags) if e.tags else "—",
+            str(e.section_count),
+            e.udf_path,
+        )
+    console.print(tbl)
+
+
+@library_app.command("search")
+def library_search(
+    query: str = typer.Argument(..., help="Search query"),
+    library_dir: str = typer.Option(".", "--library", "-l", help="Library folder"),
+    top: int = typer.Option(10, "--top", help="Max results"),
+) -> None:
+    """Search the library by keyword.
+
+    Searches titles, tags, departments, owners, keywords, and summaries.
+
+    Example:
+        docnest library search "azure migration"
+        docnest library search "leave policy" --library ./hr-docs
+    """
+    from docnest.library import LibraryManager
+    lib = LibraryManager(library_dir)
+    try:
+        results = lib.search(query, top_k=top)
+    except FileNotFoundError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not results:
+        console.print(f"[dim]No results for '{query}'[/dim]")
+        return
+
+    console.print(f"\n[bold]Results for:[/bold] [yellow]{query}[/yellow]\n")
+    for entry, score in results:
+        pct = int(score * 100)
+        bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+        console.print(
+            f"  [green]{bar}[/green] [bold]{entry.title}[/bold]  "
+            f"[dim]{entry.department or ''}  {', '.join(entry.tags) if entry.tags else ''}[/dim]"
+        )
+        if entry.summary:
+            console.print(f"    [dim]{entry.summary[:100]}…[/dim]")
+        console.print(f"    [dim cyan]{entry.udf_path}[/dim cyan]\n")
+
+
+@library_app.command("remove")
+def library_remove(
+    doc_id: str = typer.Argument(..., help="doc_id to remove from the index"),
+    library_dir: str = typer.Option(".", "--library", "-l", help="Library folder"),
+) -> None:
+    """Remove a document from the library index (does not delete the .udf file).
+
+    Example:
+        docnest library remove sample_report
+    """
+    from docnest.library import LibraryManager
+    lib = LibraryManager(library_dir)
+    removed = lib.remove(doc_id)
+    if removed:
+        console.print(f"[green]✓[/green] Removed [bold]{doc_id}[/bold] from library index.")
+    else:
+        console.print(f"[yellow]Warning:[/yellow] doc_id '{doc_id}' not found in library.")
 
 
 if __name__ == "__main__":

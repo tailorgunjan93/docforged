@@ -97,6 +97,32 @@ class Quantizer:
             ) from exc
         raise QuantizationError(f"Unknown mode: {self.mode}")
 
+    def stride(self, dims: int) -> int:
+        """Total bytes for one embedding vector of `dims` dimensions."""
+        if self.mode == "binary":
+            import math
+            return math.ceil(dims / 8)
+        return dims * self.bytes_per_element
+
+    @property
+    def bytes_per_element(self) -> int:
+        """Bytes per dimension (binary returns 0 — use stride() instead)."""
+        return {"float32": 4, "float16": 2, "int8": 1, "binary": 0}[self.mode]
+
+    @property
+    def numpy_dtype(self) -> np.dtype:
+        """NumPy dtype for direct frombuffer decoding of this quantization mode.
+
+        Note: binary mode is stored as uint8 bit-packed; use np.unpackbits after
+        frombuffer — it cannot be directly frombuffer'd as float.
+        """
+        return np.dtype({
+            "float32": "float32",
+            "float16": "float16",
+            "int8":    "int8",
+            "binary":  "uint8",
+        }[self.mode])
+
     @staticmethod
     def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two float32 vectors."""

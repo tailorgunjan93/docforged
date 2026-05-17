@@ -179,3 +179,231 @@ class GoogleEmbedder(IEmbedder):
             raise
         except Exception as exc:
             raise EmbedError(f"GoogleEmbedder failed: {exc}") from exc
+
+
+class SentenceTransformerEmbedder(IEmbedder):
+    """Local embeddings using HuggingFace sentence-transformers.
+
+    Default model: all-MiniLM-L6-v2
+        - 384 dimensions
+        - Fast, lightweight (~80 MB)
+        - Great quality for semantic search and RAG
+
+    Other good models:
+        all-mpnet-base-v2       → 768-dim, higher quality, slower
+        all-MiniLM-L12-v2       → 384-dim, slightly better than L6
+        multi-qa-MiniLM-L6-cos-v1 → optimised for Q&A retrieval
+
+    Install: pip install sentence-transformers
+    Runs fully offline after first download. No API key required.
+
+    Usage:
+        embedder = SentenceTransformerEmbedder()           # all-MiniLM-L6-v2
+        embedder = SentenceTransformerEmbedder("all-mpnet-base-v2")
+    """
+
+    def __init__(self, model: str = "all-MiniLM-L6-v2") -> None:
+        self._model_name = model
+        self._model: object | None = None  # lazy init
+
+        # Known dims for popular models — used before the model is loaded
+        _KNOWN_DIMS = {
+            "all-MiniLM-L6-v2": 384,
+            "all-MiniLM-L12-v2": 384,
+            "all-mpnet-base-v2": 768,
+            "multi-qa-MiniLM-L6-cos-v1": 384,
+            "paraphrase-MiniLM-L6-v2": 384,
+        }
+        self._dims = _KNOWN_DIMS.get(model, 384)
+
+    @property
+    def dims(self) -> int:
+        # Return exact dims from loaded model if available
+        if self._model is not None:
+            try:
+                return self._model.get_sentence_embedding_dimension()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return self._dims
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def _get_model(self) -> object:
+        if self._model is None:
+            try:
+                from sentence_transformers import SentenceTransformer  # type: ignore[import]
+            except ImportError as exc:
+                raise EmbedError(
+                    "sentence-transformers is not installed. "
+                    "Run: pip install sentence-transformers"
+                ) from exc
+            self._model = SentenceTransformer(self._model_name)
+        return self._model
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        """Embed texts using sentence-transformers.
+
+        Args:
+            texts: List of strings (section text or summaries).
+
+        Returns:
+            float32 array of shape (len(texts), dims).
+
+        Raises:
+            EmbedError: If sentence-transformers is not installed or fails.
+        """
+        if not texts:
+            return np.empty((0, self.dims), dtype=np.float32)
+        try:
+            model = self._get_model()
+            # show_progress_bar=False keeps output clean during pipeline runs
+            vectors = model.encode(  # type: ignore[attr-defined]
+                texts,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                normalize_embeddings=True,   # L2-normalise for cosine similarity
+            )
+            return np.array(vectors, dtype=np.float32)
+        except EmbedError:
+            raise
+        except Exception as exc:
+            raise EmbedError(
+                f"SentenceTransformerEmbedder ({self._model_name}) failed: {exc}"
+            ) from exc
+
+
+class LangChainEmbedder(IEmbedder):
+    """Universal embedder backed by any LangChain Embeddings provider.
+
+    One class, every provider — swap provider+model without touching
+    any other pipeline code.
+
+    Supported providers (lazy imports — install only what you need):
+
+        Provider          Install                              Model example
+        ─────────────────────────────────────────────────────────────────────
+        huggingface/hf    pip install langchain-huggingface    all-MiniLM-L6-v2
+        openai            pip install langchain-openai         text-embedding-3-small
+        ollama            pip install langchain-ollama         nomic-embed-text
+        google            pip install langchain-google-genai   models/text-embedding-004
+        cohere            pip install langchain-cohere         embed-english-v3.0
+        bedrock / aws     pip install langchain-aws            amazon.titan-embed-text-v2:0
+        nvidia / nim      pip install langchain-nvidia-ai-endpoints  NV-Embed-QA
+        mistral           pip install langchain-mistralai       mistral-embed
+        ─────────────────────────────────────────────────────────────────────
+
+    Usage:
+        # Local sentence-transformers (free, offline after first download)
+        embedder = LangChainEmbedder("huggingface", "all-MiniLM-L6-v2")
+
+        # OpenAI (1536-dim, cloud)
+        embedder = LangChainEmbedder("openai", "text-embedding-3-small")
+
+        # Ollama local (nomic-embed-text, 768-dim)
+        embedder = LangChainEmbedder("ollama", "nomic-embed-text")
+
+        # Google Gemini (768-dim, free tier)
+        embedder = LangChainEmbedder("google", "models/text-embedding-004")
+    """
+
+    # Known embedding dimensions for popular models
+    _KNOWN_DIMS: dict[str, int] = {
+        # HuggingFace / sentence-transformers
+        "all-MiniLM-L6-v2": 384,
+        "all-MiniLM-L12-v2": 384,
+        "all-mpnet-base-v2": 768,
+        "multi-qa-MiniLM-L6-cos-v1": 384,
+        "paraphrase-MiniLM-L6-v2": 384,
+        # OpenAI
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072,
+        "text-embedding-ada-002": 1536,
+        # Ollama / nomic
+        "nomic-embed-text": 768,
+        "mxbai-embed-large": 1024,
+        # Google
+        "models/text-embedding-004": 768,
+        "models/embedding-001": 768,
+        # Cohere
+        "embed-english-v3.0": 1024,
+        "embed-multilingual-v3.0": 1024,
+        # Mistral
+        "mistral-embed": 1024,
+    }
+
+    def __init__(
+        self,
+        provider: str = "huggingface",
+        model: str = "all-MiniLM-L6-v2",
+        api_key: str | None = None,
+        **kwargs: object,
+    ) -> None:
+        """
+        Args:
+            provider: Embedding provider name (huggingface, openai, ollama, etc.)
+            model:    Model identifier for that provider.
+            api_key:  API key. Optional — falls back to the provider's env var.
+                      Omit for local providers (huggingface local, ollama).
+            **kwargs: Extra kwargs forwarded to the provider constructor.
+        """
+        self._provider = provider
+        self._model_name = model
+        self._api_key = api_key
+        self._kwargs = kwargs
+        self._lc_embedder: object | None = None  # lazy init
+        self._dims = self._KNOWN_DIMS.get(model, 768)
+
+    @property
+    def dims(self) -> int:
+        return self._dims
+
+    @property
+    def model_name(self) -> str:
+        return f"{self._provider}/{self._model_name}"
+
+    def _get_lc_embedder(self) -> object:
+        if self._lc_embedder is None:
+            try:
+                from docnest.llm import get_embeddings  # type: ignore[import]
+                self._lc_embedder = get_embeddings(
+                    self._provider, self._model_name,
+                    api_key=self._api_key,
+                    **self._kwargs,
+                )
+            except Exception as exc:
+                raise EmbedError(
+                    f"Failed to initialise LangChain embedder "
+                    f"({self._provider}/{self._model_name}): {exc}"
+                ) from exc
+        return self._lc_embedder
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        """Embed a list of texts using the configured LangChain provider.
+
+        Args:
+            texts: List of strings to embed.
+
+        Returns:
+            float32 array of shape (len(texts), dims).
+
+        Raises:
+            EmbedError: If the provider package is not installed or embedding fails.
+        """
+        if not texts:
+            return np.empty((0, self.dims), dtype=np.float32)
+        try:
+            lc = self._get_lc_embedder()
+            vectors = lc.embed_documents(texts)  # type: ignore[attr-defined]
+            arr = np.array(vectors, dtype=np.float32)
+            # Update dims from actual output if unknown model
+            if arr.shape[0] > 0:
+                self._dims = arr.shape[1]
+            return arr
+        except EmbedError:
+            raise
+        except Exception as exc:
+            raise EmbedError(
+                f"LangChainEmbedder ({self._provider}/{self._model_name}) failed: {exc}"
+            ) from exc

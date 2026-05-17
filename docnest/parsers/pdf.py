@@ -44,7 +44,17 @@ class DoclingPDFParser(IParser):
         # raw.sections[n].tables → list of TableData objects
     """
 
-    def __init__(self) -> None:
+    def __init__(self, ocr: bool = False, table_structure: bool = True) -> None:
+        """Initialise the PDF parser.
+
+        Args:
+            ocr: Enable OCR for scanned PDFs (requires downloading ML models).
+                 Default False — text-based PDFs don't need OCR.
+            table_structure: Use ML table structure analysis. Default True,
+                 set False for faster parsing without ML model downloads.
+        """
+        self._ocr = ocr
+        self._table_structure = table_structure
         # Lazy-loaded — Docling model init is expensive (~3-5 s first call)
         self._converter: object | None = None
 
@@ -99,15 +109,33 @@ class DoclingPDFParser(IParser):
     # ------------------------------------------------------------------ #
 
     def _get_converter(self) -> object:
-        """Lazy-init the Docling DocumentConverter (loads ML models on first call)."""
+        """Lazy-init the Docling DocumentConverter with configurable options.
+
+        By default OCR is disabled (no ML model download needed for text PDFs).
+        Set ocr=True in __init__ to enable scanned PDF support.
+        """
         if self._converter is None:
             try:
                 from docling.document_converter import DocumentConverter  # type: ignore[import]
+                from docling.datamodel.base_models import InputFormat  # type: ignore[import]
+                from docling.datamodel.pipeline_options import (  # type: ignore[import]
+                    PdfPipelineOptions,
+                )
+                from docling.document_converter import PdfFormatOption  # type: ignore[import]
             except ImportError as exc:
                 raise ParseError(
                     "Docling is not installed. Run: pip install docling"
                 ) from exc
-            self._converter = DocumentConverter()
+
+            pipeline_opts = PdfPipelineOptions()
+            pipeline_opts.do_ocr = self._ocr                          # False by default
+            pipeline_opts.do_table_structure = self._table_structure  # True by default
+
+            self._converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
+                }
+            )
         return self._converter
 
     def _extract_title(self, doc: object, path: Path) -> str:
@@ -246,8 +274,21 @@ class DoclingPDFParser(IParser):
 def _filename_to_title(stem: str) -> str:
     """Convert a filename stem to a readable title.
 
+    Handles CamelCase, hyphens, underscores, and digit boundaries.
+
     Examples:
         annual_report_2024  → Annual Report 2024
         Q3-earnings-summary → Q3 Earnings Summary
+        GunjanTailor        → Gunjan Tailor
+        SampleReport2024    → Sample Report 2024
     """
-    return re.sub(r"[-_]+", " ", stem).title()
+    import re as _re
+    # Split CamelCase (lowercase→uppercase transition)
+    s = _re.sub(r"([a-z])([A-Z])", r"\1 \2", stem)
+    # Split at letter-digit boundaries
+    s = _re.sub(r"([A-Za-z])(\d)", r"\1 \2", s)
+    s = _re.sub(r"(\d)([A-Za-z])", r"\1 \2", s)
+    # Replace hyphens/underscores with spaces
+    s = _re.sub(r"[-_]+", " ", s)
+    # Collapse whitespace and title-case
+    return " ".join(s.split()).title()

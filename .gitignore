@@ -26,10 +26,23 @@ htmlcov/
 *.swp
 *.swo
 
-# DocForge
+# DocNest generated archives & outputs
 *.udf
 *.udfx
 *.udf.chat
+
+# Generated HTML viewer output
+test_docs/*.html
+test_output/
+
+# Temp/debug scripts (prefixed with _)
+test_docs/_*.py
+
+# Extracted directory outputs
+test_docs/*_extracted/
+
+# Generated library index (runtime artifact)
+test_docs/library.json
 
 # OS
 .DS_Store

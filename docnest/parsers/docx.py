@@ -123,7 +123,8 @@ class DocxParser(IParser):
         tables appear in the section they belong to, not all at the end.
 
         Rules:
-        - Heading 1-6 / Title style  → new Section
+        - Heading 1-6 / Title style  → new Section (formal heading)
+        - Pseudo-heading (ALL CAPS / bold short line / colon label) → new Section
         - Normal / Body Text / List  → appended to current Section text
         - Table                      → TableData added to current Section
         - Empty paragraphs           → skipped
@@ -139,15 +140,27 @@ class DocxParser(IParser):
                 text = block.text.strip()  # type: ignore[attr-defined]
                 heading_level = _heading_level(style_name)
 
-                if heading_level is not None:
-                    # Save previous and start a new section
+                if heading_level is not None and text:
+                    # Formal Word Heading style — start a new section
                     if current is not None:
                         current.text = current.text.strip()
                         sections.append(current)
                     current = Section(
                         id="",
-                        title=text or "Section",
+                        title=text,
                         level=heading_level,
+                        text="",
+                    )
+                elif text and _is_pseudo_heading(block):  # type: ignore[arg-type]
+                    # No formal heading style but looks like a heading
+                    # (ALL CAPS, bold short line, or colon-terminated label)
+                    if current is not None:
+                        current.text = current.text.strip()
+                        sections.append(current)
+                    current = Section(
+                        id="",
+                        title=text.rstrip(":").strip(),
+                        level=1,
                         text="",
                     )
                 else:
@@ -268,6 +281,55 @@ def _is_paragraph(block: object) -> bool:
 
 def _is_table(block: object) -> bool:
     return type(block).__name__ == "Table"
+
+
+def _is_pseudo_heading(para: object) -> bool:
+    """Detect pseudo-headings in documents that don't use Word Heading styles.
+
+    A paragraph is treated as a pseudo-heading if ALL of:
+      - Non-empty text
+      - Short (≤ 100 characters)
+    AND at least one of:
+      - Text is entirely UPPER CASE (with at least one letter)
+      - More than 50 % of characters are in bold runs
+      - Text ends with ':' and contains no sentence-ending punctuation before it
+        (i.e. it's a field label like "DETAILS OF INSURED PERSON:")
+
+    This handles claim forms, policy documents, and other structured docs
+    that use ALL CAPS Normal text as visual headings instead of Heading styles.
+    """
+    try:
+        text: str = para.text.strip()  # type: ignore[attr-defined]
+    except Exception:
+        return False
+
+    if not text or len(text) > 100:
+        return False
+
+    # ALL CAPS with at least one letter
+    if text == text.upper() and any(c.isalpha() for c in text):
+        return True
+
+    # Majority of text in bold runs
+    try:
+        runs = para.runs  # type: ignore[attr-defined]
+        total = sum(len(r.text) for r in runs if r.text)
+        bold = sum(len(r.text) for r in runs if r.bold and r.text)
+        if total > 0 and bold / total > 0.5:
+            return True
+    except Exception:
+        pass
+
+    # Field label: ends with ':' and no sentence-ending punctuation before it
+    if (
+        text.endswith(":")
+        and "." not in text[:-1]
+        and "?" not in text
+        and "!" not in text
+    ):
+        return True
+
+    return False
 
 
 def _filename_to_title(stem: str) -> str:

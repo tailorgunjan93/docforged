@@ -21,14 +21,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from docnest.models import Document
+from docnest.models import Document, DocMeta
 from docnest.parsers.factory import ParserFactory
 from docnest.normalizer import SectionNormaliser
 from docnest.intelligence import IntelligenceEngine
-from docnest.embedder import IEmbedder, NomicEmbedder
+from docnest.embedder import IEmbedder
 from docnest.quantizer import Quantizer
 from docnest.writer import UDFWriter
 from docnest.exceptions import DOCNESTError, ParseError
+from docnest.providers.llm import ILLMProvider, get_llm_provider
+from docnest.providers.search import ISearchProvider, get_search_provider
+from docnest.providers.storage import IStorageBackend, get_storage_backend
 
 # Callback type: (stage_name, stage_output) — used for progress bars in CLI
 StageCallback = Callable[[str, object], None]
@@ -60,33 +63,103 @@ class DocNestPipeline:
 
     def __init__(
         self,
-        embedder: Optional[IEmbedder] = None,
+        # ── LLM — string config OR pre-built ILLMProvider instance ───────────
+        llm_provider: str | ILLMProvider = "groq",
+        llm_model: str = "llama-3.3-70b-versatile",
+        llm_api_key: str | None = None,
+        # ── Embeddings — string config OR pre-built IEmbedder instance ───────
+        emb_provider: str = "huggingface",
+        emb_model: str = "all-MiniLM-L6-v2",
+        emb_api_key: str | None = None,
+        # ── Pipeline options ─────────────────────────────────────────────────
         quantization: str = "float16",
-        llm_provider: str = "ollama",
-        llm_model: str = "llama3.2",
         on_stage_complete: Optional[StageCallback] = None,
         size_limit_mb: int = 200,
         skip_intelligence: bool = False,
+        # ── Provider overrides — pass pre-built objects to bypass string config
+        storage: Optional[IStorageBackend] = None,
+        search: Optional[ISearchProvider] = None,
+        # ── Legacy — kept for backward compatibility ──────────────────────────
+        embedder: Optional[IEmbedder] = None,
     ) -> None:
-        """Initialise the pipeline with injected dependencies.
+        """Initialise the pipeline.
+
+        Both LLM and embeddings follow the same three-param pattern:
+            (provider, model, api_key)
+        api_key is always optional — falls back to the provider's env var,
+        or can be omitted entirely for local providers (ollama, huggingface).
 
         Args:
-            embedder: Embedding provider. Defaults to NomicEmbedder (local, free).
-            quantization: Compression mode — float32, float16, int8, binary.
-            llm_provider: LLM provider for intelligence stages (ollama/groq/openai).
-            llm_model: Model name for the provider.
+            llm_provider:  LLM provider name — groq, openai, ollama, anthropic,
+                           google, bedrock, mistral, together, cohere, etc.
+            llm_model:     Model identifier for the LLM provider.
+            llm_api_key:   LLM API key (optional — uses env var if not set).
+                           Not needed for ollama.
+            emb_provider:  Embedding provider — huggingface, openai, ollama,
+                           google, cohere, bedrock, nvidia, mistral.
+            emb_model:     Model identifier for the embedding provider.
+            emb_api_key:   Embedding API key (optional — uses env var if set).
+                           Not needed for huggingface (local) or ollama.
+            quantization:  Vector compression — float32, float16, int8, binary.
             on_stage_complete: Optional callback(stage_name, data) for progress.
-            size_limit_mb: Maximum .udf output size in MB (default 200 MB).
-            skip_intelligence: If True, skip LLM enrichment stages (faster).
+            size_limit_mb: Maximum .udf output file size in MB (default 200).
+            skip_intelligence: Skip LLM enrichment stages — faster, no key needed.
+            embedder:      Legacy: pass a pre-built IEmbedder instance directly.
+                           Overrides emb_provider/emb_model/emb_api_key.
+
+        Examples:
+            # Groq LLM + local HuggingFace embeddings (recommended quickstart)
+            DocNestPipeline(
+                llm_provider="groq", llm_model="llama-3.3-70b-versatile",
+                llm_api_key="gsk_...",
+                emb_provider="huggingface", emb_model="all-MiniLM-L6-v2",
+            )
+
+            # OpenAI for both LLM and embeddings
+            DocNestPipeline(
+                llm_provider="openai", llm_model="gpt-4o-mini",
+                llm_api_key="sk-...",
+                emb_provider="openai", emb_model="text-embedding-3-small",
+                emb_api_key="sk-...",
+            )
+
+            # Fully local — no API keys, no internet after first download
+            DocNestPipeline(
+                llm_provider="ollama", llm_model="llama3.2",
+                emb_provider="huggingface", emb_model="all-MiniLM-L6-v2",
+                skip_intelligence=False,
+            )
         """
+        from docnest.embedder import LangChainEmbedder
+
         self.parser_factory = ParserFactory()
-        self.normaliser = SectionNormaliser()
-        self.intelligence = IntelligenceEngine(provider=llm_provider, model=llm_model)
-        self.embedder = embedder or NomicEmbedder()
+        self.normaliser     = SectionNormaliser()
+
+        # ── LLM provider ──────────────────────────────────────────────────────
+        # Accept ILLMProvider instance OR (provider, model, api_key) strings.
+        if isinstance(llm_provider, ILLMProvider):
+            llm = llm_provider
+        else:
+            llm = get_llm_provider(llm_provider, llm_model, api_key=llm_api_key)
+
+        self.intelligence = IntelligenceEngine(provider=llm)
+
+        # ── Embedder ──────────────────────────────────────────────────────────
+        # embedder kwarg takes precedence (backward compat); otherwise build from config
+        self.embedder = embedder or LangChainEmbedder(
+            provider=emb_provider,
+            model=emb_model,
+            api_key=emb_api_key,
+        )
+
+        # ── Storage + search providers ────────────────────────────────────────
+        self._storage = storage or get_storage_backend("zip")
+        self._search  = search  or get_search_provider("auto")
+
         self.quantizer = Quantizer(mode=quantization)
-        self.writer = UDFWriter(self.embedder, self.quantizer)
+        self.writer    = UDFWriter(self.embedder, self.quantizer, storage=self._storage)
         self.on_stage_complete = on_stage_complete or _NOOP
-        self.size_limit_bytes = size_limit_mb * 1_000_000
+        self.size_limit_bytes  = size_limit_mb * 1_000_000
         self.skip_intelligence = skip_intelligence
 
     # ------------------------------------------------------------------ #
@@ -138,6 +211,7 @@ class DocNestPipeline:
         source: str,
         output: Optional[str] = None,
         include_originals: bool = False,
+        meta: Optional[DocMeta] = None,
     ) -> str:
         """Convert a document or folder to a .udf file.
 
@@ -145,6 +219,7 @@ class DocNestPipeline:
             source: Path to a file or directory.
             output: Output .udf path. Defaults to source with .udf extension.
             include_originals: Embed source files inside the .udf archive.
+            meta: Optional DocMeta with owner, department, tags, etc.
 
         Returns:
             Absolute path to the created .udf file.
@@ -157,6 +232,8 @@ class DocNestPipeline:
             return self._convert_folder(path, output, include_originals)
 
         doc = self.process(source)
+        if meta:
+            doc.meta = meta
         out_path = output or str(path.with_suffix(".udf"))
         result = self.writer.write(doc, out_path, include_originals)
         self.on_stage_complete("write", result)

@@ -13,9 +13,7 @@ Phase: 4  |  Spec: docs/SPEC_DOCNEST_PYPI.md — Sections 8 and 11
 
 from __future__ import annotations
 import base64
-import json
 import re
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +23,9 @@ import numpy as np
 from docnest.models import Catalogue, KeyNumber
 from docnest.quantizer import Quantizer
 from docnest.exceptions import UDFReadError, IntelligenceError
+from docnest.providers.storage import IStorageBackend, ZipStorageBackend
+from docnest.providers.search import ISearchProvider, get_search_provider
+from docnest.providers.llm import ILLMProvider, get_llm_provider
 
 UDF_VERSION = "1.0"
 
@@ -66,17 +67,30 @@ class UDFIndex:
         zip_path: str,
         quantization: str = "float16",
         embedding_dims: int = 768,
+        storage: IStorageBackend | None = None,
+        search: ISearchProvider | None = None,
     ) -> None:
         self._catalogue = catalogue
-        self._content = content
-        self._zip_path = zip_path
+        self._content   = content
+        self._zip_path  = zip_path
         self._quantizer = Quantizer(quantization)
-        self._dims = embedding_dims
+        self._dims      = embedding_dims
+        self._storage   = storage or ZipStorageBackend()
+        self._search    = search  or get_search_provider("auto")
 
-        # Build BM25 index from section keywords
+        # Keyword index — built eagerly (cheap: just tokenised keyword lists)
         self._section_ids: list[str] = []
-        self._embeddings: list[np.ndarray] = []
-        self._bm25: object | None = None
+
+        # Embedding matrix — loaded lazily on first cosine/hybrid search.
+        # None until _load_embed_matrix() is called.
+        # Shape when loaded: (n_sections, embedding_dims), dtype float32.
+        self._embed_matrix: np.ndarray | None = None
+        self._embed_matrix_loaded: bool = False   # True once load was attempted
+
+        # Format flags set during _build_index()
+        self._has_binary_embeddings: bool = False   # embeddings.bin present
+        self._has_legacy_embeddings: bool = False   # base64 in catalogue (old format)
+
         self._build_index()
 
     # ------------------------------------------------------------------ #
@@ -84,11 +98,20 @@ class UDFIndex:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def load(cls, udf_path: str) -> "UDFIndex":
+    def load(
+        cls,
+        udf_path: str,
+        storage: IStorageBackend | None = None,
+        search: ISearchProvider | None = None,
+    ) -> "UDFIndex":
         """Load a .udf file and return a queryable UDFIndex.
 
         Args:
-            udf_path: Path to the .udf file.
+            udf_path: Path to the .udf file (or directory for "dir" backend).
+            storage:  IStorageBackend to use for reading.  Defaults to
+                      ZipStorageBackend (standard .udf ZIP format).
+            search:   ISearchProvider to use for BM25/keyword search.
+                      Defaults to best available (bm25 → tfidf → keyword).
 
         Returns:
             UDFIndex ready to query.
@@ -96,25 +119,28 @@ class UDFIndex:
         Raises:
             UDFReadError: If the file is missing, invalid, or wrong version.
         """
-        path = Path(udf_path)
+        path    = Path(udf_path)
+        backend = storage or ZipStorageBackend()
+
         if not path.exists():
             raise UDFReadError(f"UDF file not found: {udf_path}")
 
         try:
-            with zipfile.ZipFile(str(path), "r") as zf:
-                names = zf.namelist()
-                if "manifest.json" not in names:
-                    raise UDFReadError(f"Invalid .udf — missing manifest.json: {udf_path}")
+            names = backend.list_entries(str(path))
+            if "manifest.json" not in names:
+                raise UDFReadError(
+                    f"Invalid .udf — missing manifest.json: {udf_path}"
+                )
 
-                manifest = json.loads(zf.read("manifest.json"))
-                version = manifest.get("udf_version", "?")
-                if version != UDF_VERSION:
-                    raise UDFReadError(
-                        f"Unsupported .udf version '{version}'. Expected '{UDF_VERSION}'."
-                    )
+            manifest  = backend.read_json(str(path), "manifest.json")
+            version   = manifest.get("udf_version", "?")
+            if version != UDF_VERSION:
+                raise UDFReadError(
+                    f"Unsupported .udf version '{version}'. Expected '{UDF_VERSION}'."
+                )
 
-                catalogue = json.loads(zf.read("catalogue.json"))
-                content = json.loads(zf.read("content.json"))
+            catalogue = backend.read_json(str(path), "catalogue.json")
+            content   = backend.read_json(str(path), "content.json")
 
         except UDFReadError:
             raise
@@ -127,6 +153,8 @@ class UDFIndex:
             zip_path=str(path.resolve()),
             quantization=manifest.get("quantization", "float16"),
             embedding_dims=manifest.get("embedding_dims", 768),
+            storage=backend,
+            search=search,
         )
 
     # ------------------------------------------------------------------ #
@@ -136,8 +164,9 @@ class UDFIndex:
     def query(
         self,
         question: str,
-        llm_provider: str = "ollama",
-        llm_model: str = "llama3.2",
+        llm_provider: str | ILLMProvider = "groq",
+        llm_model: str = "llama-3.3-70b-versatile",
+        llm_api_key: str | None = None,
     ) -> QueryResult:
         """Resolve a question through the five-layer stack.
 
@@ -185,7 +214,7 @@ class UDFIndex:
                 section_text = self._get_section_text(top_id)
                 if section_text:
                     answer, tokens = self._call_llm_section(
-                        question, top_id, section_text, llm_provider, llm_model
+                        question, top_id, section_text, llm_provider, llm_model, llm_api_key
                     )
                     return QueryResult(
                         answer=answer,
@@ -203,7 +232,7 @@ class UDFIndex:
             sections = {k: v for k, v in sections.items() if v}
             if sections:
                 answer, tokens = self._call_llm_multi(
-                    question, sections, llm_provider, llm_model
+                    question, sections, llm_provider, llm_model, llm_api_key
                 )
                 return QueryResult(
                     answer=answer,
@@ -215,7 +244,7 @@ class UDFIndex:
 
         # ── Layer 4: full document fallback (~4000 tokens) ────────────────
         full_text = self._build_full_text()
-        answer, tokens = self._call_llm_full(question, full_text, llm_provider, llm_model)
+        answer, tokens = self._call_llm_full(question, full_text, llm_provider, llm_model, llm_api_key)
         return QueryResult(
             answer=answer,
             citations=[],
@@ -258,79 +287,174 @@ class UDFIndex:
     # ------------------------------------------------------------------ #
 
     def _build_index(self) -> None:
-        """Build BM25 index and decode embeddings from catalogue."""
-        section_index = self._catalogue.get("section_index", [])
+        """Build keyword search index. Embeddings are NOT decoded here — lazy.
+
+        Only the lightweight keyword/title tokens are processed at load time.
+        The embedding matrix is loaded on the first call to _load_embed_matrix(),
+        which is triggered only when hybrid search actually needs it.
+        """
+        section_index    = self._catalogue.get("section_index", [])
         tokenised_corpus: list[list[str]] = []
 
         for entry in section_index:
             sid = entry.get("id", "")
             self._section_ids.append(sid)
-
-            # Decode embedding
-            emb_b64 = entry.get("embedding")
-            if emb_b64:
-                try:
-                    emb_bytes = base64.b64decode(emb_b64)
-                    vec = self._quantizer.dequantize(emb_bytes, self._dims)
-                    self._embeddings.append(vec)
-                except Exception:
-                    self._embeddings.append(np.zeros(self._dims, dtype=np.float32))
-            else:
-                self._embeddings.append(np.zeros(self._dims, dtype=np.float32))
-
-            # Tokenise keywords + title for BM25
-            keywords = entry.get("keywords", [])
+            # Tokenise keywords + title for BM25 / keyword index
+            keywords     = entry.get("keywords", [])
             title_tokens = entry.get("title", "").lower().split()
-            tokens = list(set(keywords + title_tokens))
-            tokenised_corpus.append(tokens)
+            tokenised_corpus.append(list(set(keywords + title_tokens)))
 
-        # Build BM25 index
+        # Detect which embedding format is available
         try:
-            from rank_bm25 import BM25Okapi  # type: ignore[import]
-            if tokenised_corpus:
-                self._bm25 = BM25Okapi(tokenised_corpus)
-        except ImportError:
-            pass  # BM25 scoring will be skipped — cosine only
+            names = self._storage.list_entries(self._zip_path)
+            self._has_binary_embeddings = "embeddings.bin" in names
+        except Exception:
+            self._has_binary_embeddings = False
+
+        if not self._has_binary_embeddings:
+            # Legacy: check if any section entry has a base64 embedding
+            self._has_legacy_embeddings = any(
+                entry.get("embedding") for entry in section_index
+            )
+
+        # Build keyword search index (cheap — no network, no large allocations)
+        if tokenised_corpus:
+            try:
+                self._search.build_index(tokenised_corpus)
+            except Exception:
+                pass  # index failure → falls back to overlap scoring
+
+    def _load_embed_matrix(self) -> np.ndarray | None:
+        """Load the embedding matrix on first call (lazy).
+
+        Returns:
+            float32 ndarray of shape (n_sections, embedding_dims), or None if
+            no embeddings are available or loading fails.
+        """
+        if self._embed_matrix_loaded:
+            return self._embed_matrix   # already loaded (or already failed)
+
+        self._embed_matrix_loaded = True
+        n = len(self._section_ids)
+        if n == 0 or self._dims == 0:
+            return None
+
+        try:
+            if self._has_binary_embeddings:
+                # Fast path: raw bytes → single np.frombuffer call, zero-copy reshape
+                raw = self._storage.read_entry(self._zip_path, "embeddings.bin")
+                expected = n * self._quantizer.stride(self._dims)
+                if len(raw) != expected:
+                    return None   # corrupt or version mismatch
+                mat = (
+                    np.frombuffer(raw, dtype=self._quantizer.numpy_dtype)
+                    .reshape(n, self._dims)
+                    .astype(np.float32)
+                )
+
+            elif self._has_legacy_embeddings:
+                # Slow path: decode base64 per-section (backward compatibility)
+                vecs: list[np.ndarray] = []
+                for entry in self._catalogue.get("section_index", []):
+                    emb_b64 = entry.get("embedding")
+                    if emb_b64:
+                        try:
+                            emb_bytes = base64.b64decode(emb_b64)
+                            vec = self._quantizer.dequantize(emb_bytes, self._dims)
+                        except Exception:
+                            vec = np.zeros(self._dims, dtype=np.float32)
+                    else:
+                        vec = np.zeros(self._dims, dtype=np.float32)
+                    vecs.append(vec)
+                mat = np.stack(vecs) if vecs else None
+
+            else:
+                return None
+
+            self._embed_matrix = mat
+            return mat
+
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ #
     #  Search                                                              #
     # ------------------------------------------------------------------ #
 
     def _hybrid_search(self, question: str) -> list[tuple[str, float]]:
-        """BM25 + cosine similarity hybrid search. Returns [(§id, score)] sorted desc."""
+        """Keyword (ISearchProvider) + embedding cosine hybrid.
+
+        Score = 0.5 × BM25 + 0.5 × semantic_score
+        Semantic score: cosine similarity against stored embeddings if available,
+        otherwise falls back to keyword-overlap Jaccard (no embedder needed).
+
+        Embeddings are loaded lazily here — only decoded on first search call.
+        """
         if not self._section_ids:
             return []
 
         tokens = question.lower().split()
-        n = len(self._section_ids)
+        n      = len(self._section_ids)
 
-        # BM25 scores
-        bm25_scores = np.zeros(n, dtype=np.float32)
-        if self._bm25 is not None:
-            try:
-                scores = self._bm25.get_scores(tokens)  # type: ignore[attr-defined]
-                bm25_max = float(np.max(scores)) + 1e-8
-                bm25_scores = np.array(scores, dtype=np.float32) / bm25_max
-            except Exception:
-                pass
+        # ── BM25 / keyword scores ─────────────────────────────────────────
+        kw_scores = np.zeros(n, dtype=np.float32)
+        try:
+            raw = self._search.get_scores(tokens)
+            if raw and len(raw) == n:
+                kw_scores = np.array(raw, dtype=np.float32)
+        except Exception:
+            pass
 
-        # Cosine similarity scores (only if query can be embedded)
-        cosine_scores = np.zeros(n, dtype=np.float32)
-        # Note: at query time we use keyword tokens for cosine approximation
-        # Full cosine requires an embedder — pass one in for production use.
-        # For now, cosine is derived from keyword overlap as a proxy.
-        for i, entry_id in enumerate(self._section_ids):
-            entry = self._get_catalogue_entry(entry_id)
-            if entry:
-                kw = set(entry.get("keywords", []))
-                tok_set = set(tokens)
-                if kw and tok_set:
-                    overlap = len(kw & tok_set) / max(len(kw | tok_set), 1)
-                    cosine_scores[i] = float(overlap)
+        # ── Semantic scores — lazy load embeddings on first call ──────────
+        sem_scores = np.zeros(n, dtype=np.float32)
+        embed_mat  = self._load_embed_matrix()   # None if no embeddings
 
-        # Hybrid: equal weight
-        hybrid = 0.5 * bm25_scores + 0.5 * cosine_scores
-        order = np.argsort(hybrid)[::-1]
+        if embed_mat is not None:
+            # Build a query vector by averaging stored section embeddings
+            # that contain matching keywords (cheap proxy — no embedder needed)
+            tok_set = set(tokens)
+            match_indices: list[int] = []
+            for i, entry_id in enumerate(self._section_ids):
+                entry = self._get_catalogue_entry(entry_id)
+                if entry:
+                    kw = set(entry.get("keywords", []))
+                    if kw & tok_set:
+                        match_indices.append(i)
+
+            if match_indices:
+                # Query vector = mean of matching section embeddings
+                query_vec = embed_mat[match_indices].mean(axis=0)
+                # Cosine similarity against all sections
+                norms = np.linalg.norm(embed_mat, axis=1, keepdims=True)
+                norms = np.where(norms == 0, 1.0, norms)
+                unit_mat   = embed_mat / norms
+                query_norm = np.linalg.norm(query_vec)
+                if query_norm > 0:
+                    unit_q   = query_vec / query_norm
+                    sem_scores = unit_mat @ unit_q   # cosine similarity
+                    # Normalise to [0, 1]
+                    sem_scores = (sem_scores + 1.0) / 2.0
+            else:
+                # No keyword matches — fall back to overlap scoring
+                for i, entry_id in enumerate(self._section_ids):
+                    entry = self._get_catalogue_entry(entry_id)
+                    if entry:
+                        kw = set(entry.get("keywords", []))
+                        if kw and tok_set:
+                            sem_scores[i] = len(kw & tok_set) / max(len(kw | tok_set), 1)
+        else:
+            # No embeddings available — Jaccard overlap fallback
+            tok_set = set(tokens)
+            for i, entry_id in enumerate(self._section_ids):
+                entry = self._get_catalogue_entry(entry_id)
+                if entry:
+                    kw = set(entry.get("keywords", []))
+                    if kw and tok_set:
+                        sem_scores[i] = len(kw & tok_set) / max(len(kw | tok_set), 1)
+
+        # ── Hybrid: 60% keyword, 40% semantic ─────────────────────────────
+        hybrid = 0.6 * kw_scores + 0.4 * sem_scores
+        order  = np.argsort(hybrid)[::-1]
         return [
             (self._section_ids[i], float(hybrid[i]))
             for i in order
@@ -346,8 +470,9 @@ class UDFIndex:
         question: str,
         section_id: str,
         section_text: str,
-        provider: str,
-        model: str,
+        provider: str | ILLMProvider,
+        model: str = "",
+        api_key: str | None = None,
     ) -> tuple[str, int]:
         """Layer 2: single section answer."""
         prompt = (
@@ -356,16 +481,16 @@ class UDFIndex:
             f"Section {section_id}:\n{section_text[:2000]}\n\n"
             f"Question: {question}"
         )
-        answer = _llm_call(prompt, provider, model)
-        tokens = len(prompt.split()) + len(answer.split())
-        return answer, tokens
+        answer = _llm_call(prompt, provider, model, api_key)
+        return answer, len(prompt.split()) + len(answer.split())
 
     def _call_llm_multi(
         self,
         question: str,
         sections: dict[str, str],
-        provider: str,
-        model: str,
+        provider: str | ILLMProvider,
+        model: str = "",
+        api_key: str | None = None,
     ) -> tuple[str, int]:
         """Layer 3: multi-section synthesis."""
         context = "\n\n".join(
@@ -376,25 +501,24 @@ class UDFIndex:
             f"{context}\n\n"
             f"Question: {question}"
         )
-        answer = _llm_call(prompt, provider, model)
-        tokens = len(prompt.split()) + len(answer.split())
-        return answer, tokens
+        answer = _llm_call(prompt, provider, model, api_key)
+        return answer, len(prompt.split()) + len(answer.split())
 
     def _call_llm_full(
         self,
         question: str,
         full_text: str,
-        provider: str,
-        model: str,
+        provider: str | ILLMProvider,
+        model: str = "",
+        api_key: str | None = None,
     ) -> tuple[str, int]:
         """Layer 4: full document fallback."""
         prompt = (
             f"Using the document below, answer: {question}\n\n"
             f"Document:\n{full_text[:6000]}"
         )
-        answer = _llm_call(prompt, provider, model)
-        tokens = len(prompt.split()) + len(answer.split())
-        return answer, tokens
+        answer = _llm_call(prompt, provider, model, api_key)
+        return answer, len(prompt.split()) + len(answer.split())
 
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
@@ -430,33 +554,31 @@ class UDFIndex:
 
 
 # ------------------------------------------------------------------ #
-#  LiteLLM helper                                                      #
+#  LLM helper — thin wrapper over docnest.llm (LangChain backend)      #
 # ------------------------------------------------------------------ #
 
-def _llm_call(prompt: str, provider: str, model: str) -> str:
-    """Thin LiteLLM wrapper used by reader layers 2-4."""
-    try:
-        import litellm  # type: ignore[import]
-        litellm.set_verbose = False  # type: ignore[attr-defined]
-    except ImportError:
-        return "[LLM unavailable — install litellm]"
+def _llm_call(
+    prompt: str,
+    provider: str | ILLMProvider,
+    model: str = "",
+    api_key: str | None = None,
+) -> str:
+    """Route a query-time call through an ILLMProvider.
 
-    if provider == "ollama":
-        model_str = f"ollama/{model}"
-    elif provider == "openai":
-        model_str = model
-    elif provider == "groq":
-        model_str = f"groq/{model}"
-    else:
-        model_str = f"{provider}/{model}"
-
+    Accepts either an ILLMProvider instance or legacy (provider, model, api_key)
+    strings.  Returns a plain string — never raises — so a failed LLM call
+    never crashes a query; the caller gets a bracketed error message instead.
+    """
     try:
-        response = litellm.completion(
-            model=model_str,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=512,
-        )
-        return response.choices[0].message.content or ""
+        if isinstance(provider, ILLMProvider):
+            llm = provider
+        else:
+            llm = get_llm_provider(provider, model, api_key=api_key)
+        return llm.complete(prompt=prompt, system="")
     except Exception as exc:
-        return f"[LLM error: {exc}]"
+        label = (
+            f"{provider.provider_name}/{provider.model_name}"
+            if isinstance(provider, ILLMProvider)
+            else f"{provider}/{model}"
+        )
+        return f"[LLM error ({label}): {exc}]"

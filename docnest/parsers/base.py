@@ -10,6 +10,7 @@ Design pattern: Template Method (parse() defines the skeleton, _extract() is ove
 """
 
 from __future__ import annotations
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -52,5 +53,16 @@ class IParser(ABC):
         ...
 
     def _make_doc_id(self, file_path: str) -> str:
-        """Generate a stable doc_id from the file path."""
-        return Path(file_path).stem.lower().replace(" ", "-")
+        """Generate a stable, slug-friendly doc_id from the file path.
+
+        Handles CamelCase (GunjanTailor → gunjan-tailor), spaces,
+        underscores, and digit boundaries (Report2024 → report-2024).
+        """
+        stem = Path(file_path).stem
+        # Split CamelCase: insert hyphen between lower→upper and letter→digit
+        s = re.sub(r"([a-z])([A-Z])", r"\1-\2", stem)
+        s = re.sub(r"([A-Za-z])(\d)", r"\1-\2", s)
+        s = re.sub(r"(\d)([A-Za-z])", r"\1-\2", s)
+        # Collapse spaces/underscores/hyphens into a single hyphen
+        s = re.sub(r"[\s_-]+", "-", s)
+        return s.lower().strip("-")

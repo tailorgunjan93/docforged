@@ -75,6 +75,23 @@ class RawDocument(BaseModel):
     raw_text: Optional[str] = Field(default=None, description="Full raw text if section extraction failed")
 
 
+class DocMeta(BaseModel):
+    """Human-facing metadata for a document — who owns it, how to find it.
+
+    These fields power the library catalogue (left sidebar in the reader UI)
+    and access control. All fields are optional so existing pipelines keep working.
+    """
+    owner: str = Field(default="", description="Person or team that owns this document")
+    department: str = Field(default="", description="Business department, e.g. 'Engineering', 'HR'")
+    tags: list[str] = Field(default_factory=list, description="Searchable topic tags")
+    access_roles: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Roles that may access this doc. ['*'] means everyone.",
+    )
+    version: str = Field(default="1.0", description="Document version string, e.g. '2.1'")
+    last_updated: str = Field(default="", description="ISO date of last content update, e.g. '2025-04-22'")
+
+
 class Document(BaseModel):
     """A fully normalised document — output of the complete 6-stage pipeline."""
     doc_id: str
@@ -86,6 +103,8 @@ class Document(BaseModel):
     summary: Optional[str] = None
     insights: list[str] = Field(default_factory=list, description="3-5 non-obvious findings")
     key_numbers: list[KeyNumber] = Field(default_factory=list)
+    # Human-facing metadata
+    meta: DocMeta = Field(default_factory=DocMeta)
 
 
 class Catalogue(BaseModel):
@@ -108,3 +127,10 @@ class Catalogue(BaseModel):
     embedding_model: str = ""
     embedding_dims: int = 0
     quantization: str = "float16"
+    # Human-facing metadata (mirrors DocMeta)
+    owner: str = ""
+    department: str = ""
+    tags: list[str] = Field(default_factory=list)
+    access_roles: list[str] = Field(default_factory=lambda: ["*"])
+    version: str = "1.0"
+    last_updated: str = ""

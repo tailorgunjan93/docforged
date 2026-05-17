@@ -1,13 +1,22 @@
 """
-Intelligence Engine — Stages 3, 4, and 5 of the DocNest pipeline.
+Intelligence Engine — Stages 4 and 5 of the DocNest pipeline.
 
-Uses an LLM (via LiteLLM) to enrich documents with:
-  Stage 3: Table normalisation verification
+Uses an LLM (via LangChain) to enrich documents with:
   Stage 4: One-sentence summary + keywords per section
   Stage 5: Document-level summary, insights[], key_numbers[]
 
 LLM calls happen ONCE per document at ingest time.
 Every future query benefits for free — zero extra tokens per query.
+
+LLM provider is fully pluggable — swap provider+model, nothing else changes:
+    engine = IntelligenceEngine(provider="groq",      model="llama-3.3-70b-versatile")
+    engine = IntelligenceEngine(provider="openai",    model="gpt-4o-mini")
+    engine = IntelligenceEngine(provider="ollama",    model="llama3.2")
+    engine = IntelligenceEngine(provider="anthropic", model="claude-3-haiku-20240307")
+    engine = IntelligenceEngine(provider="google",    model="gemini-1.5-flash")
+    engine = IntelligenceEngine(provider="bedrock",   model="amazon.titan-text-lite-v1")
+
+See docnest/llm.py for the full provider list.
 
 Phase: 3  |  Spec: docs/SPEC_DOCNEST_PYPI.md — Section 10
 """
@@ -19,6 +28,7 @@ from typing import Any
 
 from docnest.models import Document, Section, KeyNumber
 from docnest.exceptions import IntelligenceError
+from docnest.providers.llm import ILLMProvider, get_llm_provider
 
 # System prompt used for all intelligence calls
 _SYSTEM = (
@@ -33,23 +43,56 @@ _MAX_DOC_CONTEXT_CHARS = 8000
 
 
 class IntelligenceEngine:
-    """LLM-powered document enrichment via LiteLLM.
+    """LLM-powered document enrichment via LangChain.
 
-    Supports any LLM provider through LiteLLM's unified interface:
-        ollama    — fully local, free (default; needs Ollama running locally)
-        groq      — fast, cheap API ($0.01 per 100-page doc)
-        openai    — highest quality (~$0.05 per 100-page doc)
-        anthropic — also supported via LiteLLM
+    Supports any LLM provider through LangChain's unified interface:
+        groq      — fast cloud, free tier (default)
+        openai    — highest quality
+        ollama    — fully local, free (needs Ollama running)
+        anthropic — Claude models
+        google    — Gemini models
+        bedrock   — AWS Bedrock
+        ... and more (see docnest/llm.py)
 
     Usage:
-        engine = IntelligenceEngine(provider="ollama", model="llama3.2")
+        engine = IntelligenceEngine(provider="groq", model="llama-3.3-70b-versatile")
         doc = engine.enrich_sections(doc)   # Stage 4: per-section summaries
         doc = engine.enrich_document(doc)   # Stage 5: doc-level intelligence
     """
 
-    def __init__(self, provider: str = "ollama", model: str = "llama3.2") -> None:
-        self.provider = provider
-        self.model = model
+    def __init__(
+        self,
+        provider: str | ILLMProvider = "groq",
+        model: str = "llama-3.3-70b-versatile",
+        api_key: str | None = None,
+        **llm_kwargs: object,
+    ) -> None:
+        """Initialise the intelligence engine.
+
+        Accepts either an ``ILLMProvider`` instance (preferred) or the legacy
+        ``(provider, model, api_key)`` string config (backward-compatible).
+
+        Args:
+            provider:     ILLMProvider instance  **or**  provider name string
+                          (groq, openai, ollama, anthropic, google, …).
+            model:        Model identifier — ignored when ``provider`` is an
+                          ILLMProvider instance.
+            api_key:      API key — optional, falls back to provider's env var.
+                          Ignored when ``provider`` is an ILLMProvider instance.
+            **llm_kwargs: Extra kwargs forwarded when building a new provider.
+        """
+        if isinstance(provider, ILLMProvider):
+            # Caller passed a fully-constructed provider object
+            self._llm: ILLMProvider = provider
+        else:
+            # Backward-compatible string config
+            self._llm = get_llm_provider(provider, model, api_key=api_key, **llm_kwargs)
+
+        # Keep public attrs for introspection / backward compat
+        self.provider = self._llm.provider_name
+        self.model    = self._llm.model_name
+        self.api_key  = api_key
+        self._llm_kwargs = llm_kwargs
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -174,7 +217,7 @@ class IntelligenceEngine:
             ) from exc
 
     def _call_llm(self, prompt: str) -> str:
-        """Make a single LLM call via LiteLLM.
+        """Call the configured ILLMProvider.
 
         Args:
             prompt: User message.
@@ -183,44 +226,15 @@ class IntelligenceEngine:
             LLM response text.
 
         Raises:
-            IntelligenceError: If the LLM call fails.
+            IntelligenceError: If the provider package is not installed,
+                               the API key is missing, or the call fails.
         """
-        try:
-            import litellm  # type: ignore[import]
-            litellm.set_verbose = False  # type: ignore[attr-defined]
-        except ImportError as exc:
-            raise IntelligenceError(
-                "litellm not installed. Run: pip install litellm"
-            ) from exc
+        return self._llm.complete(prompt=prompt, system=_SYSTEM)
 
-        # Build model string understood by LiteLLM
-        if self.provider == "ollama":
-            model_str = f"ollama/{self.model}"
-        elif self.provider == "openai":
-            model_str = self.model  # e.g. "gpt-4o-mini"
-        elif self.provider == "groq":
-            model_str = f"groq/{self.model}"
-        elif self.provider == "anthropic":
-            model_str = f"anthropic/{self.model}"
-        else:
-            model_str = f"{self.provider}/{self.model}"
 
-        try:
-            response = litellm.completion(
-                model=model_str,
-                messages=[
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
-                max_tokens=512,
-            )
-            return response.choices[0].message.content or ""
-        except Exception as exc:
-            raise IntelligenceError(
-                f"LLM call failed ({model_str}): {exc}"
-            ) from exc
-
+# ======================================================================
+#  Utility
+# ======================================================================
 
 def _extract_json(text: str) -> str:
     """Extract the first JSON object or array from an LLM response string."""
