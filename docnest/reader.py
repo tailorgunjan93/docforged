@@ -26,6 +26,7 @@ from docnest.exceptions import UDFReadError, IntelligenceError
 from docnest.providers.storage import IStorageBackend, ZipStorageBackend
 from docnest.providers.search import ISearchProvider, get_search_provider
 from docnest.providers.llm import ILLMProvider, get_llm_provider
+from docnest.providers.vector import IVectorBackend, NumpyVectorBackend, get_vector_backend
 
 UDF_VERSION = "1.0"
 
@@ -69,6 +70,7 @@ class UDFIndex:
         embedding_dims: int = 768,
         storage: IStorageBackend | None = None,
         search: ISearchProvider | None = None,
+        vector: IVectorBackend | None = None,
     ) -> None:
         self._catalogue = catalogue
         self._content   = content
@@ -77,11 +79,12 @@ class UDFIndex:
         self._dims      = embedding_dims
         self._storage   = storage or ZipStorageBackend()
         self._search    = search  or get_search_provider("auto")
+        self._vector    = vector  or NumpyVectorBackend()   # pluggable vector backend
 
         # Keyword index — built eagerly (cheap: just tokenised keyword lists)
         self._section_ids: list[str] = []
 
-        # Embedding matrix — loaded lazily on first cosine/hybrid search.
+        # Raw embedding matrix — loaded lazily on first search.
         # None until _load_embed_matrix() is called.
         # Shape when loaded: (n_sections, embedding_dims), dtype float32.
         self._embed_matrix: np.ndarray | None = None
@@ -103,21 +106,44 @@ class UDFIndex:
         udf_path: str,
         storage: IStorageBackend | None = None,
         search: ISearchProvider | None = None,
+        vector: IVectorBackend | str | None = None,
+        **vector_kwargs,
     ) -> "UDFIndex":
         """Load a .udf file and return a queryable UDFIndex.
 
         Args:
-            udf_path: Path to the .udf file (or directory for "dir" backend).
-            storage:  IStorageBackend to use for reading.  Defaults to
-                      ZipStorageBackend (standard .udf ZIP format).
-            search:   ISearchProvider to use for BM25/keyword search.
-                      Defaults to best available (bm25 → tfidf → keyword).
+            udf_path:      Path to the .udf file (or directory for "dir" backend).
+            storage:       IStorageBackend to use for reading.  Defaults to
+                           ZipStorageBackend (standard .udf ZIP format).
+            search:        ISearchProvider to use for BM25/keyword search.
+                           Defaults to best available (bm25 → tfidf → keyword).
+            vector:        IVectorBackend (or backend name string) for semantic
+                           similarity search.  Options:
+                             ``None`` / ``"numpy"``  — pure NumPy (default, zero deps)
+                             ``"faiss"``             — FAISS IndexFlatIP (pip install faiss-cpu)
+                             ``"chroma"``            — ChromaDB (pip install chromadb)
+                           Pass an IVectorBackend instance to use a custom backend.
+            **vector_kwargs: Extra keyword arguments forwarded to get_vector_backend()
+                           when ``vector`` is a string (e.g. ``persist_dir="./store"``).
 
         Returns:
             UDFIndex ready to query.
 
         Raises:
-            UDFReadError: If the file is missing, invalid, or wrong version.
+            UDFReadError:  If the file is missing, invalid, or wrong version.
+            ImportError:   If the chosen vector backend's package is not installed.
+
+        Examples::
+
+            # Default — NumPy, zero deps
+            idx = UDFIndex.load("report.udf")
+
+            # FAISS — needs: pip install faiss-cpu
+            idx = UDFIndex.load("report.udf", vector="faiss")
+
+            # ChromaDB persistent — needs: pip install chromadb
+            idx = UDFIndex.load("report.udf", vector="chroma",
+                                persist_dir="./chroma_store")
         """
         path    = Path(udf_path)
         backend = storage or ZipStorageBackend()
@@ -147,6 +173,12 @@ class UDFIndex:
         except Exception as exc:
             raise UDFReadError(f"Failed to open '{udf_path}': {exc}") from exc
 
+        # Resolve the vector backend — accept name string or instance
+        if vector is None or isinstance(vector, str):
+            vec_backend = get_vector_backend(vector or "numpy", **vector_kwargs)
+        else:
+            vec_backend = vector
+
         return cls(
             catalogue=catalogue,
             content=content,
@@ -155,6 +187,7 @@ class UDFIndex:
             embedding_dims=manifest.get("embedding_dims", 768),
             storage=backend,
             search=search,
+            vector=vec_backend,
         )
 
     # ------------------------------------------------------------------ #
@@ -372,6 +405,19 @@ class UDFIndex:
                 return None
 
             self._embed_matrix = mat
+            # ── Hand the matrix to the vector backend (lazy build) ───────
+            try:
+                self._vector.build(self._section_ids, mat)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Vector backend build() failed (%s): %s — falling back to numpy",
+                    self._vector.backend_name, exc,
+                )
+                # Fallback: swap in a fresh NumpyVectorBackend silently
+                from docnest.providers.vector import NumpyVectorBackend as _NpBE
+                self._vector = _NpBE()
+                self._vector.build(self._section_ids, mat)
             return mat
 
         except Exception:
@@ -409,9 +455,9 @@ class UDFIndex:
         sem_scores = np.zeros(n, dtype=np.float32)
         embed_mat  = self._load_embed_matrix()   # None if no embeddings
 
-        if embed_mat is not None:
-            # Build a query vector by averaging stored section embeddings
-            # that contain matching keywords (cheap proxy — no embedder needed)
+        if embed_mat is not None and self._vector.is_ready():
+            # Build a proxy query vector by averaging stored embeddings of
+            # keyword-matching sections (no live embedder needed at query time)
             tok_set = set(tokens)
             match_indices: list[int] = []
             for i, entry_id in enumerate(self._section_ids):
@@ -422,20 +468,17 @@ class UDFIndex:
                         match_indices.append(i)
 
             if match_indices:
-                # Query vector = mean of matching section embeddings
                 query_vec = embed_mat[match_indices].mean(axis=0)
-                # Cosine similarity against all sections
-                norms = np.linalg.norm(embed_mat, axis=1, keepdims=True)
-                norms = np.where(norms == 0, 1.0, norms)
-                unit_mat   = embed_mat / norms
-                query_norm = np.linalg.norm(query_vec)
-                if query_norm > 0:
-                    unit_q   = query_vec / query_norm
-                    sem_scores = unit_mat @ unit_q   # cosine similarity
-                    # Normalise to [0, 1]
-                    sem_scores = (sem_scores + 1.0) / 2.0
+                # ── Delegate to the pluggable vector backend ─────────────
+                backend_results = self._vector.search(query_vec, k=n)
+                # Scatter backend scores back into sem_scores array by §id
+                id_to_idx = {sid: i for i, sid in enumerate(self._section_ids)}
+                for sid, score in backend_results:
+                    idx = id_to_idx.get(sid)
+                    if idx is not None:
+                        sem_scores[idx] = score
             else:
-                # No keyword matches — fall back to overlap scoring
+                # No keyword matches — Jaccard overlap fallback
                 for i, entry_id in enumerate(self._section_ids):
                     entry = self._get_catalogue_entry(entry_id)
                     if entry:
