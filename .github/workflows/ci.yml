@@ -27,31 +27,4 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
-        run: |
-          pytest tests/ -v --tb=short --junit-xml=test-results.xml || true
-          python - <<'EOF'
-          import xml.etree.ElementTree as ET, os, sys
-          try:
-              tree = ET.parse("test-results.xml")
-              root = tree.getroot()
-              suite = root if root.tag == "testsuite" else root.find("testsuite")
-              failures = int(suite.get("failures", 0)) + int(suite.get("errors", 0))
-              total    = int(suite.get("tests", 0))
-              summary  = f"## Test Results\n{total - failures}/{total} passed"
-              lines = [summary]
-              if failures:
-                  lines.append("\n### ❌ Failures\n")
-                  for tc in suite.findall(".//testcase"):
-                      for child in tc:
-                          if child.tag in ("failure", "error"):
-                              lines.append(f"**{tc.get('classname')}.{tc.get('name')}**")
-                              lines.append(f"```\n{child.text[:2000] if child.text else ''}\n```")
-              out = "\n".join(lines)
-              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-                  f.write(out)
-              if failures:
-                  sys.exit(1)
-          except Exception as e:
-              print(f"Summary error: {e}")
-              sys.exit(1)
-          EOF
+        run: pytest tests/ -v --tb=short
