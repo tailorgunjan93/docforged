@@ -547,7 +547,7 @@ Tested against a 500-page open-source nutrition textbook using PyMuPDF parser + 
 The one expected failure: a table-heavy page where PyMuPDF extracts no text (switch to `DoclingPDFParser` for full table support).
 
 > Run the benchmark yourself: `pytest test_nutrition_accuracy.py -v`  
-> PDF: [OpenStax Human Nutrition](https://openstax.org/details/books/nutrition-science-and-everyday-application)
+> PDF: any 500-page structured document (nutrition textbook used internally)
 
 ---
 
