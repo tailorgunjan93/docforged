@@ -77,41 +77,31 @@ jobs:
             let response = "";
 
             if (isBug) {
-              response = `
-  Thanks for the bug report! 🐛
-
-  To help us reproduce and fix this faster, could you share:
-  - DOCNEST version (\`pip show docnest-ai\`)
-  - Python version and OS
-  - A minimal code snippet that triggers the issue
-  - The full traceback (if any)
-
-  We'll take a look soon.
-              `.trim();
+              response =
+                "Thanks for the bug report! 🐛\n\n" +
+                "To help us reproduce and fix this faster, could you share:\n" +
+                "- DOCNEST version (`pip show docnest-ai`)\n" +
+                "- Python version and OS\n" +
+                "- A minimal code snippet that triggers the issue\n" +
+                "- The full traceback (if any)\n\n" +
+                "We'll take a look soon.";
             } else if (isQuestion) {
-              response = `
-  Good question! 👋
-
-  While we look into this, you might find an answer in:
-  - The [README](https://github.com/tailorgunjan93/docnest#readme) — especially the quickstart and query engine sections
-  - Existing [closed issues](https://github.com/tailorgunjan93/docnest/issues?q=is%3Aissue+is%3Aclosed) which often have answers
-
-  If none of those help, we'll reply here directly.
-              `.trim();
+              response =
+                "Good question! 👋\n\n" +
+                "While we look into this, you might find an answer in:\n" +
+                "- The [README](https://github.com/tailorgunjan93/docnest#readme) — especially the quickstart and query engine sections\n" +
+                "- Existing [closed issues](https://github.com/tailorgunjan93/docnest/issues?q=is%3Aissue+is%3Aclosed) which often have answers\n\n" +
+                "If none of those help, we'll reply here directly.";
             } else if (isFeature) {
-              response = `
-  Thanks for the suggestion! 💡
-
-  Feature requests are tracked here. If this is something others upvote, it'll move up the roadmap.
-  Feel free to add more context about your use case — it helps a lot when prioritising.
-              `.trim();
+              response =
+                "Thanks for the suggestion! 💡\n\n" +
+                "Feature requests are tracked here. If this is something others upvote, it'll move up the roadmap.\n" +
+                "Feel free to add more context about your use case — it helps a lot when prioritising.";
             } else {
-              response = `
-  Thanks for opening this issue! 👋
-
-  We've tagged it automatically — someone will follow up soon.
-  If you have more context or a reproduction case, feel free to add it.
-              `.trim();
+              response =
+                "Thanks for opening this issue! 👋\n\n" +
+                "We've tagged it automatically — someone will follow up soon.\n" +
+                "If you have more context or a reproduction case, feel free to add it.";
             }
 
             await github.rest.issues.createComment({
