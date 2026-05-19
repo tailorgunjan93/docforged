@@ -13,6 +13,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - 85%+ test coverage + mypy passing
 - Docker image `ghcr.io/tailorgunjan93/docnest:latest`
 - PPTX parser
+
+---
+
+## [0.4.1] — 2026-05-19
+
+### Fixed
+- **`ExcelParser`**: single-column sheets (where every row has exactly one
+  non-empty cell) were incorrectly discarded with "no data sheets" after the
+  0.4.0 merged-cell fix. The pre-scan now only skips leading single-cell rows
+  when a multi-column row follows them; purely single-column sheets fall back
+  to using the first row as the header with no skipping.
 - EPUB parser
 - GitHub / Confluence / Notion connectors
 - Hierarchical supervisor+worker sharding for datasets >200MB
