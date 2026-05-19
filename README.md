@@ -575,7 +575,7 @@ In-depth articles on how DOCNEST works and the problems it solves:
 
 | # | Title | Published |
 |---|-------|-----------|
-| 1 | [I Built a PDF Parser That Actually Preserves Table Structure for RAG — Here's Why It Matters](https://dev.to/gunjantailor/i-built-a-pdf-parser-that-actually-preserves-table-structure-for-rag-heres-why-it-matters-19fo) | May 2026 |
+| 1 | [My RAG app confidently told my client the wrong answer. I spent 3 days debugging the wrong thing.](https://dev.to/gunjantailor/i-built-a-pdf-parser-that-actually-preserves-table-structure-for-rag-heres-why-it-matters-19fo) | May 2026 |
 
 ---
 
