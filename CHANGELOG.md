@@ -20,6 +20,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.4.0b3] — 2026-05-19
+
+### Fixed
+- `UDFWriter.write()`: no longer crashes when `embedder=None`; `_build_embedding_blob`,
+  `_build_manifest`, and `_build_catalogue` all guard against a missing embedder —
+  embedding fields default to `""` / `0` / empty blob so structure-only UDF export works
+  without any LLM provider configured
+
+---
+
 ## [0.4.0b2] — 2026-05-19
 
 ### Fixed

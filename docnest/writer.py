@@ -148,8 +148,11 @@ class UDFWriter:
         so the blob is always a perfect (n_sections × stride) matrix.
         Consumers can decode with:
             np.frombuffer(blob, dtype=np.float16).reshape(n_sections, dims)
+        Returns empty bytes when no embedder is configured.
         """
-        import numpy as np
+        if self.embedder is None:
+            return b""
+        import numpy as np  # noqa: F401
         stride = self.quantizer.stride(self.embedder.dims)
         parts: list[bytes] = []
         for section in doc.sections:
@@ -168,8 +171,8 @@ class UDFWriter:
             "title": doc.title,
             "source_format": doc.format,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "embedding_model": self.embedder.model_name,
-            "embedding_dims": self.embedder.dims,
+            "embedding_model": self.embedder.model_name if self.embedder else "",
+            "embedding_dims": self.embedder.dims if self.embedder else 0,
             "quantization": self.quantizer.mode,
             "section_count": len(doc.sections),
             "intelligence": True,
@@ -226,8 +229,8 @@ class UDFWriter:
                 for kn in doc.key_numbers
             ],
             "section_index": section_index,
-            "embedding_model": self.embedder.model_name,
-            "embedding_dims": self.embedder.dims,
+            "embedding_model": self.embedder.model_name if self.embedder else "",
+            "embedding_dims": self.embedder.dims if self.embedder else 0,
             "quantization": self.quantizer.mode,
         }
 
