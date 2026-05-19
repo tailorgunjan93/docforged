@@ -569,6 +569,16 @@ Track detailed progress: [ROADMAP.md](ROADMAP.md)
 
 ---
 
+## 📝 Blog
+
+In-depth articles on how DOCNEST works and the problems it solves:
+
+| # | Title | Published |
+|---|-------|-----------|
+| 1 | [I Built a PDF Parser That Actually Preserves Table Structure for RAG — Here's Why It Matters](https://dev.to/gunjantailor/i-built-a-pdf-parser-that-actually-preserves-table-structure-for-rag-heres-why-it-matters-19fo) | May 2026 |
+
+---
+
 ## 🤝 Contributing
 
 **DOCNEST is community-first.** We are building this in the open and want contributors at every level.
