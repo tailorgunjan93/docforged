@@ -9,16 +9,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- JSON / JSONL parser
+- PPTX parser
+- EPUB parser
+- 85%+ test coverage + mypy passing
+- Docker image `ghcr.io/tailorgunjan93/docnest:latest`
+
+---
+
+## [0.5.0] — 2026-05-20
+
 ### Added
 - **`CSVParser`**: parses `.csv` and `.tsv` files into a structured `RawDocument` —
   first row → column headers, remaining rows → `TableData`; delimiter auto-detected
   (comma, tab, semicolon, pipe); encoding cascade (UTF-8 BOM-safe → UTF-8 → latin-1);
   row lengths normalised (pad / truncate); registered in `ParserFactory` by default.
-
-### Planned
-- 85%+ test coverage + mypy passing
-- Docker image `ghcr.io/tailorgunjan93/docnest:latest`
-- PPTX parser
+  Zero new dependencies (stdlib `csv` module). 60 new tests (652 total).
 
 ---
 
