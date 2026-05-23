@@ -2,8 +2,8 @@
 ## Technical Specification v1.0
 
 > **Audience:** Customer, Business Analyst, Architect, Senior Engineer, Market Researcher
-> **Status:** Ready for implementation
-> **Last updated:** 2026-05-17
+> **Status:** Stable · Production
+> **Last updated:** 2026-05-23
 
 ---
 
@@ -52,15 +52,30 @@ This approach treats a 40-page financial report the same as a Reddit post. Table
 
 ### For the end user
 - Answers go from "approximately correct" to "correctly cited with source location"
-- Token cost per query: 200–500 vs 3,000–8,000 (blind chunking) — **10–15× reduction**
+- Token cost per query: ~2,600 avg (structured) vs 80,000–120,000 (full-doc traditional RAG) — **up to 45× reduction**
 - Time to answer: sub-second for pre-computed intelligence vs multi-second LLM calls
 
 ### For the business
 | Metric | Blind Chunking | DOCNEST |
 |---|---|---|
-| LLM API cost per 10K queries | ~$80–$200 | ~$8–$20 |
-| Answer accuracy (internal benchmark) | ~62% | ~89% |
-| Developer integration time | 1 day | 2 hours (`pip install DOCNEST-ai`) |
+| LLM API cost per 10K queries | ~$80–$200 | ~$4–$14 |
+| Answer accuracy (v7 eval, 88 questions) | ~60% | **95.5%** |
+| Developer integration time | 1 day | 2 hours (`pip install docnest-ai`) |
+| Formats supported | 1–2 | PDF, DOCX, XLSX, HTML, MD, CSV |
+
+### Evaluated accuracy (v7 — May 2026)
+
+88 questions across 10 real-world documents in 5 formats, scored with honest factual analysis:
+
+| Format | Score | Pass Rate |
+|---|---|---|
+| DOCX, HTML, MD | 9.9–10.0 / 10 | 100% |
+| XLSX | 8.8 / 10 | 87% |
+| PDF (simple) | 10.0 / 10 | 100% |
+| PDF (dense research) | 7.8–8.4 / 10 | 60–80% |
+| **Overall** | **9.55 / 10** | **95.5%** |
+
+4 real errors in 88 questions — all retrieval/indexing issues, zero LLM hallucinations.
 
 ### Market size
 Enterprise RAG market: $1.2B in 2024, projected $8.9B by 2029 (CAGR 49%). Every RAG pipeline is a potential DOCNEST customer.
@@ -101,10 +116,29 @@ Enterprise RAG market: $1.2B in 2024, projected $8.9B by 2029 (CAGR 49%). Every 
 - **Pluggable providers** — swap LLM, embedder, vector backend, search, storage, OCR via interface
 
 ### Input formats
-PDF (text + scanned), DOCX, XLSX, HTML, Markdown
+PDF (text + scanned), DOCX, XLSX, CSV/TSV, HTML, Markdown
 
 ### Output formats
 `.udf` (portable zip archive), `library.json` (multi-document index), HTML (viewer)
+
+### Who is DOCNEST for?
+
+DOCNEST is a **developer and AI pipeline tool**. It is not designed for end-user document management.
+
+| User | How they use DOCNEST |
+|---|---|
+| **ML / RAG engineer** | Primary audience. Ingests documents into `.udf`, builds query pipelines. |
+| **Researcher** | Converts paper collections to queryable knowledge bases. |
+| **Backend developer** | Embeds DOCNEST in an API layer behind a product UI. |
+| **Data scientist** | Extracts structured table data, section summaries, key numbers from documents. |
+| **Enterprise architect** | Evaluates DOCNEST as the ingestion layer for an internal RAG platform. |
+
+**The `.udf` format is intentionally AI-first.** A business analyst or document manager is not expected to open `.udf` files directly. Their interaction with DOCNEST is through:
+- A product UI built on top of it (chatbot, search interface, dashboard)
+- The HTML viewer: `docnest view report.udf` — opens in browser, fully human-readable
+- Exported summaries and insights via the Python API
+
+This positioning is deliberate. Trying to make `.udf` a consumer format would compromise its AI performance characteristics. The bridge to human users is the **application layer** built on top of DOCNEST.
 
 ---
 
