@@ -55,6 +55,7 @@ class DoclingPDFParser(IParser):
         generate_images: bool = False,
         images_scale: float = 1.0,
         chunk_pages: int = 0,
+        pdf_backend: str = "pypdfium2",
     ) -> None:
         """Initialise the PDF parser.
 
@@ -72,12 +73,18 @@ class DoclingPDFParser(IParser):
                  Set explicitly, e.g. chunk_pages=20, to override auto behaviour.
                  Chunking splits the PDF via PyMuPDF (fitz), processes each chunk
                  with full Docling quality, then merges sections — no quality loss.
+            pdf_backend: PDF rendering backend to use.
+                 ``"pypdfium2"`` (default) — memory-efficient, constant ~3.9 GB RAM,
+                 no memory accumulation across pages.
+                 ``"docling"`` — default Docling C++ backend (dlparse), higher
+                 quality but can accumulate memory on large PDFs causing OOM.
         """
         self._ocr = ocr
         self._table_structure = table_structure
         self._generate_images = generate_images
         self._images_scale = images_scale
         self._chunk_pages = chunk_pages
+        self._pdf_backend = pdf_backend
         # Lazy-loaded — Docling model init is expensive (~3-5 s first call)
         self._converter: object | None = None
 
@@ -259,6 +266,13 @@ class DoclingPDFParser(IParser):
 
         By default OCR is disabled (no ML model download needed for text PDFs).
         Set ocr=True in __init__ to enable scanned PDF support.
+
+        Backend selection:
+          - ``"pypdfium2"`` (default): uses PyPdfiumDocumentBackend — constant
+            memory footprint (~3.9 GB), no accumulation across pages. Recommended
+            for large PDFs and memory-constrained environments.
+          - ``"docling"`` (legacy): uses the default Docling C++ dlparse backend.
+            Higher layout quality but accumulates memory on large PDFs (OOM risk).
         """
         if self._converter is None:
             try:
@@ -283,10 +297,31 @@ class DoclingPDFParser(IParser):
             if self._generate_images:
                 pipeline_opts.images_scale = self._images_scale
 
+            # Resolve backend class
+            backend_cls = None
+            if self._pdf_backend == "pypdfium2":
+                try:
+                    from docling.backend.pypdfium2_backend import (  # type: ignore[import]
+                        PyPdfiumDocumentBackend,
+                    )
+                    backend_cls = PyPdfiumDocumentBackend
+                except ImportError:
+                    import warnings
+                    warnings.warn(
+                        "pypdfium2 backend not available (pip install pypdfium2). "
+                        "Falling back to default Docling backend.",
+                        RuntimeWarning,
+                        stacklevel=3,
+                    )
+
+            fmt_option = (
+                PdfFormatOption(pipeline_options=pipeline_opts, backend=backend_cls)
+                if backend_cls is not None
+                else PdfFormatOption(pipeline_options=pipeline_opts)
+            )
+
             self._converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
-                }
+                format_options={InputFormat.PDF: fmt_option}
             )
         return self._converter
 

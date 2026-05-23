@@ -1,0 +1,142 @@
+<svg width="860" height="220" viewBox="0 0 860 220" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0);   }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0; }
+      }
+      @keyframes shimmer {
+        0%   { stop-color: #388bfd; }
+        50%  { stop-color: #3fb950; }
+        100% { stop-color: #388bfd; }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.7; }
+        50%       { opacity: 1;   }
+      }
+      .a0 { animation: fadeUp .5s  .00s both; }
+      .a1 { animation: fadeUp .5s  .25s both; }
+      .a2 { animation: fadeUp .5s  .50s both; }
+      .a3 { animation: fadeUp .45s .75s both; }
+      .a4 { animation: fadeUp .45s .90s both; }
+      .a5 { animation: fadeUp .45s 1.05s both; }
+      .a6 { animation: fadeUp .45s 1.20s both; }
+      .a7 { animation: fadeUp .4s  1.50s both; }
+      .cursor { animation: blink 1.1s infinite; }
+      .glow   { animation: pulse 3s ease-in-out infinite; }
+    </style>
+
+    <!-- Main title gradient (animated color shift) -->
+    <linearGradient id="tg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#388bfd">
+        <animate attributeName="stop-color"
+                 values="#388bfd;#3fb950;#388bfd"
+                 dur="4s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" stop-color="#3fb950">
+        <animate attributeName="stop-color"
+                 values="#3fb950;#388bfd;#3fb950"
+                 dur="4s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+
+    <!-- Badge gradients -->
+    <linearGradient id="b1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c2128"/><stop offset="100%" stop-color="#21262d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── Background ──────────────────────────────────────────────── -->
+  <rect width="860" height="220" rx="12" fill="url(#bg)"/>
+  <rect width="860" height="220" rx="12" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Subtle grid dots -->
+  <pattern id="dots" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+    <circle cx="1" cy="1" r="0.8" fill="#21262d"/>
+  </pattern>
+  <rect width="860" height="220" rx="12" fill="url(#dots)" opacity="0.8"/>
+
+  <!-- ── Window chrome ───────────────────────────────────────────── -->
+  <rect width="860" height="36" rx="12" fill="#161b22"/>
+  <rect x="0" y="12" width="860" height="24" fill="#161b22"/>
+  <rect x="0" y="35" width="860" height="1" fill="#30363d"/>
+
+  <!-- Traffic lights -->
+  <circle class="a0" cx="22"  cy="18" r="5.5" fill="#ff5f57"/>
+  <circle class="a0" cx="40"  cy="18" r="5.5" fill="#ffbd2e"/>
+  <circle class="a0" cx="58"  cy="18" r="5.5" fill="#28c840"/>
+
+  <!-- Window title -->
+  <text class="a0" x="430" y="23" text-anchor="middle"
+        font-family="'SF Mono','Fira Code','Courier New',monospace"
+        font-size="11" fill="#6e7681">
+    docnest — document normalization engine
+  </text>
+
+  <!-- ── Main title ─────────────────────────────────────────────── -->
+  <text class="a1" x="430" y="105"
+        text-anchor="middle"
+        font-family="'SF Mono','Fira Code','Courier New',monospace"
+        font-size="58" font-weight="bold" letter-spacing="10"
+        fill="url(#tg)">DOCNEST</text>
+
+  <!-- ── Tagline ────────────────────────────────────────────────── -->
+  <text class="a2" x="430" y="133"
+        text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+        font-size="14" fill="#8b949e">
+    The document normalization engine RAG has always needed.
+  </text>
+
+  <!-- ── Four-pillar badges ─────────────────────────────────────── -->
+  <!-- Secure -->
+  <rect class="a3" x="136" y="148" width="118" height="30" rx="15" fill="url(#b1)" stroke="#238636" stroke-width="1"/>
+  <text class="a3" x="195" y="168"
+        text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+        font-size="13" fill="#3fb950">&#x1F512; Secure</text>
+
+  <!-- Fast -->
+  <rect class="a4" x="268" y="148" width="100" height="30" rx="15" fill="url(#b1)" stroke="#1f6feb" stroke-width="1"/>
+  <text class="a4" x="318" y="168"
+        text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+        font-size="13" fill="#58a6ff">&#x26A1; Fast</text>
+
+  <!-- Reliable -->
+  <rect class="a5" x="382" y="148" width="122" height="30" rx="15" fill="url(#b1)" stroke="#8b1922" stroke-width="1"/>
+  <text class="a5" x="443" y="168"
+        text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+        font-size="13" fill="#f78166">&#x1F6E1; Reliable</text>
+
+  <!-- Cost-Effective -->
+  <rect class="a6" x="518" y="148" width="158" height="30" rx="15" fill="url(#b1)" stroke="#9e6a03" stroke-width="1"/>
+  <text class="a6" x="597" y="168"
+        text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+        font-size="13" fill="#e3b341">&#x1F4B0; Cost-Effective</text>
+
+  <!-- ── Stats line ─────────────────────────────────────────────── -->
+  <text class="a7 glow" x="430" y="203"
+        text-anchor="middle"
+        font-family="'SF Mono','Fira Code','Courier New',monospace"
+        font-size="11.5" fill="#484f58">
+    9.55/10 accuracy &#x2022; 88 questions &#x2022; 5 formats &#x2022; 10 documents &#x2022; 95.5% pass rate
+  </text>
+
+  <!-- Blinking cursor -->
+  <text class="cursor" x="726" y="203"
+        font-family="'SF Mono','Fira Code','Courier New',monospace"
+        font-size="12" fill="#3fb950">&#x25AE;</text>
+</svg>

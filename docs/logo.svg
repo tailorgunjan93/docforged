@@ -1,0 +1,40 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#388bfd"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+    <linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c2128"/>
+      <stop offset="100%" stop-color="#21262d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer hexagon -->
+  <polygon points="60,6 110,33 110,87 60,114 10,87 10,33"
+           fill="url(#lg)" opacity="0.95"/>
+
+  <!-- Inner bg -->
+  <polygon points="60,16 100,38 100,82 60,104 20,82 20,38"
+           fill="url(#lg2)"/>
+
+  <!-- Document body -->
+  <rect x="36" y="32" width="36" height="46" rx="3" fill="#388bfd" opacity="0.15"/>
+  <rect x="36" y="32" width="36" height="46" rx="3" fill="none" stroke="url(#lg)" stroke-width="1.5"/>
+
+  <!-- Folded corner -->
+  <polygon points="62,32 72,32 72,42 62,42" fill="#0d1117" opacity="0.4"/>
+  <polyline points="62,32 62,42 72,42" fill="none" stroke="url(#lg)" stroke-width="1.5"/>
+
+  <!-- Data lines (structured content) -->
+  <rect x="41" y="50" width="22" height="2.5" rx="1.25" fill="#388bfd" opacity="0.8"/>
+  <rect x="41" y="57" width="16" height="2.5" rx="1.25" fill="#3fb950" opacity="0.8"/>
+  <rect x="41" y="64" width="20" height="2.5" rx="1.25" fill="#388bfd" opacity="0.6"/>
+  <rect x="41" y="71" width="12" height="2.5" rx="1.25" fill="#3fb950" opacity="0.6"/>
+
+  <!-- Check mark overlay bottom-right -->
+  <circle cx="82" cy="82" r="13" fill="#0d1117"/>
+  <circle cx="82" cy="82" r="11" fill="url(#lg)"/>
+  <polyline points="76,82 80,87 89,76" fill="none" stroke="white" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
