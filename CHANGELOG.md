@@ -18,6 +18,73 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.0] — 2026-05-23
+
+### Added — `docnest/retrieval.py` (HybridRetriever — SQLite FTS5 + Dense ANN + Section Graph)
+
+New standalone retrieval module replacing the previous in-memory BM25 + TF-IDF approach.
+
+**Architecture:**
+- **SQLite FTS5** — built-in BM25 ranking via SQLite's FTS5 extension. Uses Porter stemmer tokeniser. ~0.5 ms per query vs ~30 ms in-memory. No extra dependencies (`sqlite3` is stdlib).
+- **Dense ANN (numpy cosine)** — section embeddings stored as BLOB in SQLite, loaded lazily. ~0.1 ms per query vs ~15 ms previously.
+- **Section Graph** — structural edges (parent → child, sibling → sibling) + semantic edges (cosine > 0.68). Graph expansion adds 1-hop neighbours after RRF fusion, catching adjacent sections that contain part of the answer.
+- **RRF Fusion** — Reciprocal Rank Fusion (`score = Σ w_i / (60 + rank_i)`) combines BM25 and dense signals with configurable weights.
+
+**Performance (warm cache):**
+
+| Step | Before | After |
+|---|---|---|
+| BM25 index build | ~80 ms (every run) | **0 ms** (SQLite, persisted) |
+| Dense embed build | ~200 ms (every run) | **0 ms** (stored in SQLite) |
+| BM25 query | ~30 ms | **0.5 ms** (FTS5 C-level) |
+| Dense ANN query | ~15 ms | **0.1 ms** (numpy on stored BLOB) |
+| Graph expansion | 0 ms (no graph) | **0.2 ms** |
+| **Total per query** | **~785 ms** | **~1 ms** |
+
+Cold start (first build): ~250 ms (embed N sections, build FTS5 + graph once).
+
+**Cache invalidation:** SHA-256 of `(doc_id + section_count + Σ text[:200])`. Any structural change → full rebuild.
+
+**SQLite schema:**
+```sql
+CREATE VIRTUAL TABLE fts_sections USING fts5(doc_id UNINDEXED, sec_idx UNINDEXED,
+    sec_id UNINDEXED, title, text, tokenize='porter ascii');
+
+CREATE TABLE embeddings (doc_id TEXT, sec_idx INTEGER, vec BLOB, PRIMARY KEY(doc_id, sec_idx));
+
+CREATE TABLE graph_edges (doc_id TEXT, from_idx INTEGER, to_idx INTEGER,
+    edge_type TEXT, weight REAL);
+
+CREATE TABLE doc_hashes (doc_id TEXT PRIMARY KEY, hash TEXT, n_secs INTEGER, built_at REAL);
+```
+
+### Added — Eval Engine (eval/rag_accuracy_eval.py)
+
+- **Cerebras API support** — `--model cerebras/<model>` — OpenAI-compatible endpoint, no daily token limit
+- **`--no-reranker` flag** — skip cross-encoder for speed-critical runs
+- **Eager cross-encoder load** — pre-loads `ms-marco-MiniLM-L-6-v2` at startup instead of on first query (fixes ~30-min hang on cold start). Reports load time: `ready in 11s`
+- **HybridRetriever integration** — eval now uses `HybridRetriever` (SQLite FTS5 + dense + graph) instead of in-memory BM25
+
+### Added — Eval Tooling
+
+- `run_eval.ps1` — PowerShell runner for full Gemini + Groq + judge pipeline (ASCII-safe for PS 5.1)
+- `eval/_precache.py` — pre-cache PDF documents as `.pkl` files to skip re-parsing on repeat runs
+- `eval/judge_answers.py` — standalone judge script for scoring saved `answers_for_claude.json` files
+
+### Changed — pyproject.toml
+
+- Version bumped from `0.5.0` → `0.6.0`
+- Repository and issue tracker URLs corrected to `github.com/tailorgunjan93/docnest`
+
+### Results — v7 Benchmark (Cerebras qwen-3-235b-a22b-instruct-2507)
+
+88 questions · 10 documents · 5 formats · honest factual scoring:
+- **9.55 / 10** average · **95.5%** pass rate (84/88)
+- 4 real retrieval errors, zero LLM hallucinations
+- DOCX, HTML, MD, and 5 PDFs score 10.0 / 10
+
+---
+
 ## [0.5.0] — 2026-05-20
 
 ### Added

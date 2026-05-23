@@ -7,7 +7,7 @@ packages = ["docnest"]
 
 [project]
 name = "docnest-ai"
-version = "0.5.0"
+version = "0.6.0"
 description = "The document normalisation engine RAG has always needed"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -122,11 +122,11 @@ all = ["docnest-ai[quickstart,connectors,faiss,ocr]"]
 docnest = "docnest.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/tailorgunjan93/DOCNESTd"
-Documentation = "https://github.com/tailorgunjan93/DOCNESTd/blob/main/docs/SPEC_DOCNEST_PYPI.md"
-Repository = "https://github.com/tailorgunjan93/DOCNESTd"
-Issues = "https://github.com/tailorgunjan93/DOCNESTd/issues"
-Changelog = "https://github.com/tailorgunjan93/DOCNESTd/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/tailorgunjan93/docnest"
+Documentation = "https://github.com/tailorgunjan93/docnest/blob/main/docs/SPEC_DOCNEST_PYPI.md"
+Repository = "https://github.com/tailorgunjan93/docnest"
+Issues = "https://github.com/tailorgunjan93/docnest/issues"
+Changelog = "https://github.com/tailorgunjan93/docnest/blob/main/CHANGELOG.md"
 
 [tool.black]
 line-length = 100
