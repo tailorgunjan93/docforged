@@ -47,3 +47,14 @@ test_docs/library.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Eval runtime artifacts (run results, cache, debug scripts — not shipped in sdist)
+eval/results/
+eval/cache/
+eval/docs/
+eval/debug_*.py
+eval/quick_check.py
+eval/test_*.py
+
+# Serialised document caches
+*.pkl
